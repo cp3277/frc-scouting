@@ -57,6 +57,17 @@ tech_stack:
   qr_handling: JavaScript (frontend), Python (backend)
   version_control: Git
 
+security_notes:
+  certificates:
+    - For HTTPS/camera access, generate local certificates using mkcert:
+        mkcert -install
+        mkcert localhost 127.0.0.1 192.168.0.16
+    - Certificate files (*.pem) are NOT included in the repo
+    - Keep generated certificates secure and never commit them
+    - Required files (generate these locally):
+        localhost+2.pem
+        localhost+2-key.pem
+
 gitignore:
   - venv/
   - __pycache__/
