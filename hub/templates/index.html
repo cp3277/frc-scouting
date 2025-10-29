@@ -36,13 +36,17 @@
             padding: 10px;
             border-radius: 4px;
         }
-        .success {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-        .error {
-            background: #ffebee;
-            color: #c62828;
+        #debug-info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 1000;
         }
         button {
             background: #2196F3;
@@ -74,42 +78,68 @@
         <h1>FRC Scouting Hub - QR Scanner</h1>
         
         <div id="video-container">
-            <video id="video" playsinline></video>
+            <video id="video" playsinline autoplay muted></video>
             <button id="start-camera">Start/Stop Camera</button>
             <canvas id="canvas" style="display:none;"></canvas>
         </div>
 
         <div id="result"></div>
+        <div id="debug-info"></div>
         
         <div id="data-list">
             <h2>Scanned Data</h2>
             <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
             <script>
-                let video = document.getElementById('video');
+            video = document.getElementById('video');
                 let canvas = document.getElementById('canvas');
-                let context = canvas.getContext('2d');
+                let context = canvas.getContext('2d', { willReadFrequently: true });
                 let resultDiv = document.getElementById('result');
                 let dataList = document.getElementById('scanned-data');
                 let scanning = false;
                 let lastScanned = new Set(); // Keep track of recently scanned codes
                 let scanTimeout = null;
+                
+                // Set initial canvas size
+                canvas.width = 640;  // Reasonable default size
+                canvas.height = 480;
 
                 // Function to process a frame with client-side decoding (jsQR)
                 async function processFrame() {
                     if (!scanning) return;
 
+                    // Debug logging for video status
+                    console.log('Video status:', {
+                        videoWidth: video.videoWidth,
+                        videoHeight: video.videoHeight,
+                        videoReady: video.readyState === video.HAVE_ENOUGH_DATA
+                    });
+                    
+                    // Only process frame if we have valid video data
+                    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+                        requestAnimationFrame(processFrame);
+                        return;
+                    }
+                    
                     // Set canvas size to match video
                     canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-            
-                    // Draw video frame to canvas
+                    canvas.height = video.videoHeight;                    // Draw video frame to canvas
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                     // Get raw pixel data and decode locally using jsQR
-                    const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+                    // Try to focus on the center area for better performance
+                    const centerSize = Math.min(canvas.width, canvas.height) * 0.6;
+                    const centerX = (canvas.width - centerSize) / 2;
+                    const centerY = (canvas.height - centerSize) / 2;
+                    const frame = context.getImageData(centerX, centerY, centerSize, centerSize);
+                    // Update debug info
+                    const debugInfo = document.getElementById('debug-info');
+                    debugInfo.textContent = `Canvas: ${canvas.width}x${canvas.height}, Video: ${video.videoWidth}x${video.videoHeight}`;
+                    
                     try {
                         const qr = jsQR(frame.data, frame.width, frame.height);
+                        console.log('QR scan result:', qr ? 'Found QR code' : 'No QR code found');
                         if (qr && qr.data) {
+                            console.log('QR data:', qr.data.substring(0, 50) + '...');
                             // Attempt to parse payload as JSON
                             let payload = null;
                             try {
@@ -140,12 +170,45 @@
                                         div.textContent = `Team ${payload.team} - Match ${payload.match}`;
                                         dataList.insertBefore(div, dataList.firstChild);
 
-                                        // Play a success sound
+                                        // Create and play success sound (longer beep)
                                         const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF5WHhcYFhQODRIYNkhwj6yxtbK0ubm1rZ2GcmZSTT0yMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv//MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjI=');
                                         audio.play();
+                                        audio.play(); // Play twice for emphasis
+                                        
+                                        // Update button text to indicate camera is off
+                                        document.getElementById('start-camera').textContent = 'Start Camera';
+
+                                        // Create full-screen success overlay
+                                        const overlay = document.createElement('div');
+                                        overlay.className = 'scan-overlay';
+                                        const content = document.createElement('div');
+                                        content.className = 'scan-overlay-content';
+                                        content.innerHTML = `
+                                            <div style="font-size: 48px; margin-bottom: 20px">✅</div>
+                                            QR Code Successfully Scanned!
+                                            <div style="font-size: 0.8em; margin-top: 10px">Team ${payload.team} - Match ${payload.match}</div>
+                                        `;
+                                        overlay.appendChild(content);
+                                        document.body.appendChild(overlay);
+
+                                        // Remove overlay after 2 seconds
+                                        setTimeout(() => {
+                                            overlay.style.animation = 'fadeOut 0.5s ease-out';
+                                            setTimeout(() => overlay.remove(), 500);
+                                        }, 2000);
 
                                         resultDiv.innerHTML = `Success! ${serverResult.message} ${serverResult.csv_status || ''}`;
                                         resultDiv.className = 'success';
+                                        
+                                        // Stop the camera after successful scan
+                                        scanning = false;
+                                        if (scanTimeout) {
+                                            cancelAnimationFrame(scanTimeout);
+                                        }
+                                        if (video.srcObject) {
+                                            video.srcObject.getTracks().forEach(track => track.stop());
+                                        }
+                                        video.srcObject = null;
                                     } else {
                                         resultDiv.innerHTML = `Server error: ${serverResult.error}`;
                                         resultDiv.className = 'error';
@@ -159,9 +222,17 @@
 
                     // Continue scanning
                     if (scanning) {
-                        scanTimeout = setTimeout(processFrame, 1000); // Scan every second
+                        scanTimeout = requestAnimationFrame(processFrame); // Scan as fast as possible
                     }
                 }
+
+                // Add visual scanning overlay
+                context.strokeStyle = '#00FF00';
+                context.lineWidth = 4;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                const size = Math.min(canvas.width, canvas.height) * 0.6;
+                context.strokeRect(centerX - size/2, centerY - size/2, size, size);
 
         // Toggle camera button
         document.getElementById('start-camera').addEventListener('click', async () => {
@@ -188,7 +259,11 @@
                     }
 
                     const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: { ideal: 'environment' } }
+                        video: {
+                            facingMode: { exact: 'environment' },
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
                     });
 
                     // Some older WebKit builds don't support srcObject — use fallback
@@ -210,6 +285,7 @@
                     processFrame(); // Start the scanning process
                     resultDiv.innerHTML = "Camera started - looking for QR codes...";
                     resultDiv.className = '';
+                    document.getElementById('start-camera').textContent = 'Stop Camera';
                 } catch (err) {
                     console.error('Error accessing camera:', err);
                     // Show a friendly message rather than a cryptic undefined error
