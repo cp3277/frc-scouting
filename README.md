@@ -32,7 +32,7 @@ features:
 
 setup:
   - Clone repository:
-      git clone https://github.com/<yourusername>/frc-qr-scouting-app.git
+      git clone https://github.com/cp3277/frc-qr-scouting-app.git
       cd frc-qr-scouting-app
 
   - Create and activate virtual environment:
@@ -63,13 +63,6 @@ gitignore:
   - data/
   - reef.png
   - reef_base64.txt
-
-future_plans:
-  - Add localStorage for form persistence
-  - Build dashboard for data review
-  - Add CSV export and basic analytics
-  - Support for multiple hubs to merge data
-  - Optional React or Svelte UI migration
 
 development_notes:
   - Primary environment: VS Code on Windows
