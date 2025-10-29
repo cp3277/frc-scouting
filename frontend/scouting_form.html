@@ -89,6 +89,9 @@
       border-radius:8px;
       border:1px solid #f1f1f6;
     }
+    .toggle-group{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .toggle-btn{padding:8px 12px;border-radius:8px;border:1px solid #e6e6ee;background:#fff;cursor:pointer}
+    .toggle-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
     .counter-left{display:flex;flex-direction:column}
     .counter-title{font-weight:700}
     .counter-controls{display:flex;align-items:center;gap:8px}
@@ -230,7 +233,16 @@
           </div>
         </div>
 
-        <div class="note">Tip: Tap + / − to adjust counts. Use <strong>Generate QR</strong> when ready.</div>
+          <div class="note">Tip: Tap + / − to adjust counts. Use <strong>Generate QR</strong> when ready.</div>
+
+          <!-- Climb selection -->
+          <label style="margin-top:10px">Climb</label>
+          <div class="toggle-group">
+            <button id="climb-no" class="toggle-btn active" onclick="setClimb('no_climb')">No Climb</button>
+            <button id="climb-park" class="toggle-btn" onclick="setClimb('park')">Park</button>
+            <button id="climb-shallow" class="toggle-btn" onclick="setClimb('shallow')">Shallow</button>
+            <button id="climb-deep" class="toggle-btn" onclick="setClimb('deep')">Deep</button>
+          </div>
       </div>
 
       <!-- RIGHT: Actions, QR preview, export -->
@@ -255,7 +267,7 @@
 
 <script>
   // initial counts
-  const counts = { l4:0, l3:0, l2:0, l1:0, barge:0, processor:0, auto:0 };
+  const counts = { l4:0, l3:0, l2:0, l1:0, barge:0, processor:0, auto:0, climb: 'no_climb' };
 
   function setDisplay(id){
     document.getElementById(id).textContent = counts[id];
@@ -291,8 +303,18 @@
       auto_peices: counts.auto,
       barge_algae: counts.barge,
       processor_count: counts.processor,
+      climb: counts.climb,
       notes: notes
     };
+  }
+
+  function setClimb(mode){
+    counts.climb = mode;
+    // update UI active states
+    document.getElementById('climb-no').classList.toggle('active', mode === 'no_climb');
+    document.getElementById('climb-park').classList.toggle('active', mode === 'park');
+    document.getElementById('climb-shallow').classList.toggle('active', mode === 'shallow');
+    document.getElementById('climb-deep').classList.toggle('active', mode === 'deep');
   }
 
   function generateQR(){

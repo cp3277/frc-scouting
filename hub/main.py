@@ -28,6 +28,9 @@ for d in [DATA_DIR, CSV_DIR, JSON_DIR]:
     if not os.path.exists(d):
         os.makedirs(d)
 
+# Single CSV file to collect all inputs while the server is running
+CURRENT_CSV = os.path.join(CSV_DIR, "scouting_data_current.csv")
+
 # Keep track of processed data
 processed_data = []
 
@@ -46,6 +49,40 @@ def save_to_csv():
     # Save to CSV
     df.to_csv(csv_path, index=False)
     return f"Data saved to {csv_filename}"
+
+
+def append_to_csv(record: dict):
+    """Append a single record (dict) to the running CSV file.
+
+    If the CSV doesn't exist yet it will be created with headers derived
+    from the record's keys.
+    """
+    try:
+        df = pd.DataFrame([record])
+        # If the CSV doesn't exist yet, create it with headers
+        if not os.path.exists(CURRENT_CSV):
+            df.to_csv(CURRENT_CSV, mode='w', header=True, index=False)
+            return f"Appended to {os.path.basename(CURRENT_CSV)}"
+
+        # If CSV exists, ensure we preserve and merge columns.
+        # Read existing CSV and concatenate so new columns (like 'climb')
+        # are added to the table. This avoids appending rows that don't
+        # line up with the original header.
+        try:
+            existing = pd.read_csv(CURRENT_CSV)
+            combined = pd.concat([existing, df], ignore_index=True, sort=False)
+            # Write back the combined frame (overwrites current CSV) so
+            # headers include any new keys from the incoming record.
+            combined.to_csv(CURRENT_CSV, index=False)
+            return f"Appended to {os.path.basename(CURRENT_CSV)}"
+        except Exception:
+            # Fallback: append without rewriting if reading fails for any reason
+            write_header = not os.path.exists(CURRENT_CSV)
+            df.to_csv(CURRENT_CSV, mode='a', header=write_header, index=False)
+            return f"Appended to {os.path.basename(CURRENT_CSV)} (fallback append)"
+
+    except Exception as e:
+        return f"Failed to append to CSV: {e}"
 
 @app.route('/')
 def index():
@@ -91,10 +128,13 @@ def scan_qr():
                 
                 # Add to processed data
                 processed_data.append(data)
-                
+                # Append to the running CSV immediately
+                csv_append_status = append_to_csv(data)
+
                 results.append({
                     "status": "success",
                     "message": f"Data saved to {json_filename}",
+                    "csv_append_status": csv_append_status,
                     "data": data
                 })
             
@@ -104,13 +144,9 @@ def scan_qr():
                     "message": "Invalid JSON data in QR code"
                 })
         
-        # Save updated CSV
-        csv_message = save_to_csv()
-        
         return jsonify({
             "message": "QR code(s) processed successfully",
-            "results": results,
-            "csv_status": csv_message
+            "results": results
         })
     
     except Exception as e:
@@ -140,14 +176,14 @@ def submit_json():
         with open(json_path, 'w') as f:
             json.dump(data, f, indent=2)
 
-        # Add to processed data and update CSV
+        # Add to processed data and append to the running CSV
         processed_data.append(data)
-        csv_message = save_to_csv()
+        csv_append_status = append_to_csv(data)
 
         return jsonify({
             "message": f"Data saved to {json_filename}",
             "data": data,
-            "csv_status": csv_message
+            "csv_status": csv_append_status
         })
 
     except Exception as e:
