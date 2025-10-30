@@ -288,18 +288,16 @@
     const alliance = document.getElementById('alliance').value;
     const notes = document.getElementById('notes').value || '';
 
+    // Don't include version/timestamp per user preference.
+    // Flatten reef counts so spreadsheet import will put them in separate cells.
     return {
-      version: 1,
-      timestamp: new Date().toISOString(),
       match: match,
       team: team,
       alliance: alliance,
-      reef: {
-        L4: counts.l4,
-        L3: counts.l3,
-        L2: counts.l2,
-        L1: counts.l1
-      },
+      reef_L4: counts.l4,
+      reef_L3: counts.l3,
+      reef_L2: counts.l2,
+      reef_L1: counts.l1,
       auto_peices: counts.auto,
       barge_algae: counts.barge,
       processor_count: counts.processor,
@@ -334,15 +332,17 @@
 
     // generate QR code
     const jsonStr = JSON.stringify(data);
-    // Create QR code
+    // Create QR code with optimal settings for data capacity
     try {
-      // Create a new QR code instance
+      // Create a new QR code instance with high error correction
       const qr = new QRCode(qrContainer, {
         text: jsonStr,
-        width: 240,
-        height: 240,
+        width: 320,  // Larger size for better scanning
+        height: 320,
         colorDark: "#000000",
-        colorLight: "#ffffff"
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M,  // Medium error correction
+        version: 10  // Allows for more data capacity
       });
     } catch (err) {
       console.error(err);

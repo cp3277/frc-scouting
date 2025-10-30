@@ -20,35 +20,66 @@ import base64
 
 app = Flask(__name__)
 
-# Ensure the data directories exist
-DATA_DIR = "collected_data"
-CSV_DIR = os.path.join(DATA_DIR, "csv")
-JSON_DIR = os.path.join(DATA_DIR, "json")
-for d in [DATA_DIR, CSV_DIR, JSON_DIR]:
+# Set up data directory in user's Documents folder
+DOCS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
+FRC_DATA_DIR = os.path.join(DOCS_DIR, 'FRC Scouting Data')
+CSV_DIR = os.path.join(FRC_DATA_DIR, 'csv')
+
+# Create directories if they don't exist
+for d in [FRC_DATA_DIR, CSV_DIR]:
     if not os.path.exists(d):
         os.makedirs(d)
+        print(f'Created directory: {d}')
 
-# Single CSV file to collect all inputs while the server is running
+# Main CSV file in Documents (persistent across runs)
 CURRENT_CSV = os.path.join(CSV_DIR, "scouting_data_current.csv")
 
 # Keep track of processed data
 processed_data = []
 
+
+def normalize_record(record: dict) -> dict:
+    """Normalize incoming record for CSV:
+    - remove 'version' and 'timestamp' if present
+    - flatten a nested 'reef' dict into reef_L4..reef_L1 columns
+    Returns a new dict suitable for writing to CSV.
+    """
+    if not isinstance(record, dict):
+        return record
+
+    r = dict(record)  # shallow copy
+    # remove unwanted keys
+    r.pop('version', None)
+    r.pop('timestamp', None)
+
+    # Flatten reef if present
+    reef = r.pop('reef', None)
+    if isinstance(reef, dict):
+        # Use consistent keys reef_L4 ... reef_L1 so CSV columns are separate
+        r['reef_L4'] = reef.get('L4') if reef.get('L4') is not None else reef.get('l4')
+        r['reef_L3'] = reef.get('L3') if reef.get('L3') is not None else reef.get('l3')
+        r['reef_L2'] = reef.get('L2') if reef.get('L2') is not None else reef.get('l2')
+        r['reef_L1'] = reef.get('L1') if reef.get('L1') is not None else reef.get('l1')
+
+    # Also handle case where frontend already sent reef_L* fields (no-op)
+    return r
+
 def save_to_csv():
-    """Convert all JSON data to CSV"""
+    """Create a timestamped backup CSV in the Documents folder."""
     if not processed_data:
         return "No data to convert"
     
     # Convert to DataFrame
     df = pd.DataFrame(processed_data)
     
-    # Generate CSV filename with timestamp
-    csv_filename = f"scouting_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csv_path = os.path.join(CSV_DIR, csv_filename)
+    # Generate backup CSV filename with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_filename = f"frc_scouting_backup_{timestamp}.csv"
+    backup_path = os.path.join(CSV_DIR, backup_filename)
     
-    # Save to CSV
-    df.to_csv(csv_path, index=False)
-    return f"Data saved to {csv_filename}"
+    # Save backup CSV
+    df.to_csv(backup_path, index=False)
+    return f"Backup saved to Documents/FRC Scouting Data/csv/{backup_filename}"
 
 
 def append_to_csv(record: dict):
@@ -117,25 +148,20 @@ def scan_qr():
             try:
                 # Decode QR data
                 data = json.loads(qr.data.decode('utf-8'))
-                
-                # Save JSON file
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                json_filename = f"scout_data_{data.get('team', 'unknown')}_{data.get('match', 'unknown')}_{timestamp}.json"
-                json_path = os.path.join(JSON_DIR, json_filename)
-                
-                with open(json_path, 'w') as f:
-                    json.dump(data, f, indent=2)
-                
+
+                # Normalize (strip version/timestamp and flatten reef)
+                normalized = normalize_record(data)
+
                 # Add to processed data
-                processed_data.append(data)
+                processed_data.append(normalized)
                 # Append to the running CSV immediately
-                csv_append_status = append_to_csv(data)
+                csv_append_status = append_to_csv(normalized)
 
                 results.append({
                     "status": "success",
-                    "message": f"Data saved to {json_filename}",
-                    "csv_append_status": csv_append_status,
-                    "data": data
+                    "message": f"Data recorded for Team {normalized.get('team', 'unknown')} Match {normalized.get('match', 'unknown')}",
+                    "csv_status": csv_append_status,
+                    "data": normalized
                 })
             
             except json.JSONDecodeError:
@@ -161,28 +187,23 @@ def view_data():
 @app.route('/submit_json', methods=['POST'])
 def submit_json():
     """Accept decoded JSON payloads from clients (browser-side decoding).
-    Saves the JSON, appends to processed_data and updates CSVs.
+    Appends directly to the running CSV.
     """
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON payload received"}), 400
 
-        # Save JSON file
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        json_filename = f"scout_data_{data.get('team', 'unknown')}_{data.get('match', 'unknown')}_{timestamp}.json"
-        json_path = os.path.join(JSON_DIR, json_filename)
-
-        with open(json_path, 'w') as f:
-            json.dump(data, f, indent=2)
+        # Normalize payload: remove version/timestamp and flatten reef
+        normalized = normalize_record(data)
 
         # Add to processed data and append to the running CSV
-        processed_data.append(data)
-        csv_append_status = append_to_csv(data)
+        processed_data.append(normalized)
+        csv_append_status = append_to_csv(normalized)
 
         return jsonify({
-            "message": f"Data saved to {json_filename}",
-            "data": data,
+            "message": f"Data recorded for Team {normalized.get('team', 'unknown')} Match {normalized.get('match', 'unknown')}",
+            "data": normalized,
             "csv_status": csv_append_status
         })
 

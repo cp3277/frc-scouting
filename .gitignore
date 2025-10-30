@@ -15,5 +15,6 @@ __pycache__/
 venv/
 .env
 
-# Data
+# Data directories (both repo and local)
 collected_data/
+**/FRC Scouting Data/
