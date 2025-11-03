@@ -2,9 +2,13 @@ from flask import Flask, request, render_template, jsonify
 import json
 from datetime import datetime
 import os
+import base64
+import pandas as pd
+from dotenv import load_dotenv
+import psycopg2
+from groq import Groq
+
 # Optional native dependencies for server-side QR decoding.
-# Wrap imports so the Flask app can still start when these native
-# libraries (zbar/libiconv) are not available on Windows.
 try:
     import cv2
     from pyzbar.pyzbar import decode
@@ -13,204 +17,318 @@ except Exception as e:
     cv2 = None
     decode = None
     np = None
-    # Log to console so user sees why server-side decoding may not work
     print('Warning: native QR decoding dependencies not available:', e)
-import pandas as pd
-import base64
+
+# --- Load environment variables ---
+load_dotenv()
+DB_URL = os.getenv("DATABASE_URL")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 app = Flask(__name__)
+@app.route('/')
+def frontend():
+    """Main scouting frontend with AI and form."""
+    return render_template('frontend.html')
 
-# Set up data directory in user's Documents folder
+@app.route('/scanner')
+def scanner():
+    """QR scanner page (previously the default)."""
+    return render_template('index.html')
+
+# --- Directory setup ---
 DOCS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
 FRC_DATA_DIR = os.path.join(DOCS_DIR, 'FRC Scouting Data')
 CSV_DIR = os.path.join(FRC_DATA_DIR, 'csv')
-
-# Create directories if they don't exist
 for d in [FRC_DATA_DIR, CSV_DIR]:
-    if not os.path.exists(d):
-        os.makedirs(d)
-        print(f'Created directory: {d}')
-
-# Main CSV file in Documents (persistent across runs)
+    os.makedirs(d, exist_ok=True)
 CURRENT_CSV = os.path.join(CSV_DIR, "scouting_data_current.csv")
-
-# Keep track of processed data
 processed_data = []
 
 
-def normalize_record(record: dict) -> dict:
-    """Normalize incoming record for CSV:
-    - remove 'version' and 'timestamp' if present
-    - flatten a nested 'reef' dict into reef_L4..reef_L1 columns
-    Returns a new dict suitable for writing to CSV.
+# --- Database utility ---
+def run_sql_query(query):
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute(query)
+    columns = [desc[0] for desc in cur.description]
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+# --- Groq AI integration ---
+# --- Groq AI integration ---
+def ask_groq(question: str):
+    client = Groq(api_key=GROQ_API_KEY)
+
+    # Step 1: Generate SQL
+    prompt = f"""
+    CRITICAL: Output ONLY the SQL query. Do NOT include any explanations, markdown formatting (like ```sql), or other text.
+    You are a data analyst for an FRC team. Given a user question, output a valid PostgreSQL SQL query 
+    based on this schema:
+
+    TABLE match_scouting (
+    org_key TEXT,
+    year INTEGER,
+    event_key TEXT,
+    match_key TEXT,
+    match_number INTEGER,
+    match_time TIMESTAMP,
+    alliance TEXT,
+    team_key TEXT,
+    
+    total_auto_points INTEGER,
+    total_spr_auto INTEGER,
+    total_teleop_points INTEGER,
+    total_spr_teleop INTEGER,
+    total_endgame_points INTEGER,
+    contributed_points INTEGER,
+    reliability_score INTEGER,
+    defensive_score INTEGER,
+    spr_points INTEGER,
+
+    count_auto_coral INTEGER,
+    count_teleop_coral INTEGER,
+    count_lvl1_coral INTEGER,
+    count_lvl2_coral INTEGER,
+    count_lvl3_coral INTEGER,
+    count_lvl4_coral INTEGER,
+    count_coral INTEGER,
+
+    count_processor_algae INTEGER,
+    count_barge_algae INTEGER,
+    count_dislodged_algae INTEGER,
+    count_auto_algae INTEGER,
+    count_teleop_algae INTEGER,
+    count_algae INTEGER,
+
+    count_teleop_pieces INTEGER,
+    count_auto_pieces INTEGER,
+
+    start_position_a BOOLEAN,
+    start_position_b BOOLEAN,
+    start_position_c BOOLEAN,
+    start_position_d BOOLEAN,
+    start_position_e BOOLEAN,
+    did_starting_zone BOOLEAN,
+
+    coral_lvl1_auto INTEGER,
+    coral_lvl2_auto INTEGER,
+    coral_lvl3_auto INTEGER,
+    coral_lvl4_auto INTEGER,
+    algae_barge_auto INTEGER,
+    algae_processor_auto INTEGER,
+    algae_dislodged_auto INTEGER,
+
+    twelve_position INTEGER,
+    two_position INTEGER,
+    four_position INTEGER,
+    six_position INTEGER,
+    eight_position INTEGER,
+    ten_position INTEGER,
+    no_scoring_position INTEGER,
+
+    spent_time_a NUMERIC(10,4),
+    spent_time_b NUMERIC(10,4),
+    spent_time_c NUMERIC(10,4),
+    cycle_time NUMERIC(10,4),
+    cycle_speed_factor NUMERIC(10,6),
+
+    hit_opponent_cage BOOLEAN,
+    intake_off_ground BOOLEAN,
+    dropped_coral_human BOOLEAN,
+
+    coral_lvl1_teleop INTEGER,
+    coral_lvl2_teleop INTEGER,
+    coral_lvl3_teleop INTEGER,
+    coral_lvl4_teleop INTEGER,
+    algae_barge_teleop INTEGER,
+    algae_processor_teleop INTEGER,
+    algae_dislodged_teleop INTEGER,
+
+    on_cage_start TEXT,
+    on_cage_end TEXT,
+    endgame_cage_status TEXT,
+
+    algae_stuck BOOLEAN,
+    coral_stuck BOOLEAN,
+    defense_rating TEXT,
+    explain_defense TEXT,
+
+    died_during_match BOOLEAN,
+    recovered_from_freeze BOOLEAN,
+    stopped_scoring BOOLEAN,
+    communication_problems TEXT
+);
+    # --- CRITICAL LOGIC MAPPING RULE for Endgame Status ---
+    # When analyzing the 'endgame_cage_status' field:
+    # 1. Any value containing the substring **'Off the ground (deep cage)'** (e.g., 'Off the ground (deep cage)') **MUST** be treated as a **SUCCESSFUL** cage climb or endgame action.
+    # 2. All other values must be treated as a FAILURE or INCOMPLETE attempt.
+    # 3. When generating the query for success rate, use the PostgreSQL 'LIKE' operator with a wildcard, for example: `WHERE endgame_cage_status LIKE '%off the ground%'` 
+    # ----------------------------------------------------
+    # --- CRITICAL QUERY LIMIT INSTRUCTION ---
+    # 1. If the user asks for the 'most' or 'least' of a metric, use ORDER BY on the aggregated column.
+    # 2. **ONLY** use the LIMIT clause (e.g., LIMIT 1 or LIMIT 5) if the user explicitly uses words like 'top 5', 'best team', 'single team', or 'highest'.
+    # 3. If the user asks for a simple aggregated list (e.g., 'all teams' scores' or 'all results'), DO NOT use the LIMIT clause.
+    # ------------------------------------------
+    The user asked: "{question}"
+    Generate a valid, safe SQL SELECT query (PostgreSQL syntax) that retrieves relevant information.
+    If the question asks for the 'most', 'least', 'average', or a total, ensure you use the appropriate aggregation function (SUM, AVG, COUNT, etc.) and use ORDER BY and LIMIT 1 to isolate the result.
+    Do not include INSERT/DELETE/UPDATE/DROP/ALTER statements.
     """
+    completion = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    sql_query = completion.choices[0].message.content.strip()
+
+    # --- 💡 DEBUG & CLEANUP STEP ---
+    print("--- 🔍 AI Generated SQL Query (Raw) ---")
+    print(sql_query)
+    print("-------------------------------------")
+
+    # CRITICAL CLEANUP: Remove Markdown backticks (```sql ... ```) if the AI includes them
+    if sql_query.startswith('```'):
+        # Strip outer backticks and any optional language tag (like 'sql\n')
+        sql_query = sql_query.strip('`').strip()
+        if sql_query.lower().startswith('sql'):
+             sql_query = sql_query.replace('sql', '', 1).strip()
+        print("--- ✅ Cleaned SQL Query (Executing) ---")
+        print(sql_query)
+        print("---------------------------------------")
+    
+    # Simple Guardrail: Ensure it starts with SELECT and isn't destructive
+    normalized_query = sql_query.upper().strip()
+    if not normalized_query.startswith("SELECT"):
+        return {"error": "AI attempted to generate a non-SELECT query. Aborting execution.", "query": sql_query}
+        
+    # --- End DEBUG & CLEANUP STEP ---
+
+    # Step 2: Execute SQL
+    try:
+        data = run_sql_query(sql_query)
+        
+        # --- 💡 DEBUG STEP: Print the data results ---
+        print("--- 📊 Database Query Results ---")
+        print(data)
+        print("---------------------------------")
+        # --- End DEBUG STEP ---
+
+    except Exception as e:
+        # If the execution fails, print the full error context
+        print(f"--- ❌ SQL Execution FAILED ---")
+        print(f"Error: {e}")
+        print(f"Failing Query: {sql_query}")
+        print("---------------------------------")
+        return {"error": f"SQL error: {e}", "query": sql_query}
+
+    # Step 3: Summarize results
+    summary_prompt = f"""
+    The user asked: "{question}".
+    SQL query result: {data}.
+    Write a concise, readable summary of what this means in FRC terms.
+    If the result set is empty, state clearly that no data was found for this query.
+    """
+    summary = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": summary_prompt}],
+    )
+
+    return {
+        "query": sql_query,
+        "data": data,
+        "summary": summary.choices[0].message.content.strip(),
+    }
+
+# --- Existing scouting functions ---
+def normalize_record(record: dict) -> dict:
     if not isinstance(record, dict):
         return record
-
-    r = dict(record)  # shallow copy
-    # remove unwanted keys
+    r = dict(record)
     r.pop('version', None)
     r.pop('timestamp', None)
-
-    # Flatten reef if present
     reef = r.pop('reef', None)
     if isinstance(reef, dict):
-        # Use consistent keys reef_L4 ... reef_L1 so CSV columns are separate
-        r['reef_L4'] = reef.get('L4') if reef.get('L4') is not None else reef.get('l4')
-        r['reef_L3'] = reef.get('L3') if reef.get('L3') is not None else reef.get('l3')
-        r['reef_L2'] = reef.get('L2') if reef.get('L2') is not None else reef.get('l2')
-        r['reef_L1'] = reef.get('L1') if reef.get('L1') is not None else reef.get('l1')
-
-    # Also handle case where frontend already sent reef_L* fields (no-op)
+        for level in ['L4', 'L3', 'L2', 'L1']:
+            r[f'reef_{level}'] = reef.get(level) or reef.get(level.lower())
     return r
-
-def save_to_csv():
-    """Create a timestamped backup CSV in the Documents folder."""
-    if not processed_data:
-        return "No data to convert"
-    
-    # Convert to DataFrame
-    df = pd.DataFrame(processed_data)
-    
-    # Generate backup CSV filename with timestamp
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    backup_filename = f"frc_scouting_backup_{timestamp}.csv"
-    backup_path = os.path.join(CSV_DIR, backup_filename)
-    
-    # Save backup CSV
-    df.to_csv(backup_path, index=False)
-    return f"Backup saved to Documents/FRC Scouting Data/csv/{backup_filename}"
 
 
 def append_to_csv(record: dict):
-    """Append a single record (dict) to the running CSV file.
-
-    If the CSV doesn't exist yet it will be created with headers derived
-    from the record's keys.
-    """
     try:
         df = pd.DataFrame([record])
-        # If the CSV doesn't exist yet, create it with headers
         if not os.path.exists(CURRENT_CSV):
             df.to_csv(CURRENT_CSV, mode='w', header=True, index=False)
-            return f"Appended to {os.path.basename(CURRENT_CSV)}"
-
-        # If CSV exists, ensure we preserve and merge columns.
-        # Read existing CSV and concatenate so new columns (like 'climb')
-        # are added to the table. This avoids appending rows that don't
-        # line up with the original header.
-        try:
-            existing = pd.read_csv(CURRENT_CSV)
-            combined = pd.concat([existing, df], ignore_index=True, sort=False)
-            # Write back the combined frame (overwrites current CSV) so
-            # headers include any new keys from the incoming record.
-            combined.to_csv(CURRENT_CSV, index=False)
-            return f"Appended to {os.path.basename(CURRENT_CSV)}"
-        except Exception:
-            # Fallback: append without rewriting if reading fails for any reason
-            write_header = not os.path.exists(CURRENT_CSV)
-            df.to_csv(CURRENT_CSV, mode='a', header=write_header, index=False)
-            return f"Appended to {os.path.basename(CURRENT_CSV)} (fallback append)"
-
+            return f"Created {os.path.basename(CURRENT_CSV)}"
+        existing = pd.read_csv(CURRENT_CSV)
+        combined = pd.concat([existing, df], ignore_index=True, sort=False)
+        combined.to_csv(CURRENT_CSV, index=False)
+        return f"Appended to {os.path.basename(CURRENT_CSV)}"
     except Exception as e:
-        return f"Failed to append to CSV: {e}"
+        return f"Failed to append: {e}"
+
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/scan', methods=['POST'])
 def scan_qr():
     try:
-        # Get the image data from the request
         image_data = request.json.get('image')
         if not image_data:
             return jsonify({"error": "No image data received"}), 400
-        
-        # Remove the data URL prefix if present
         if 'base64,' in image_data:
             image_data = image_data.split('base64,')[1]
-        
-        # Decode base64 image
         img_bytes = base64.b64decode(image_data)
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-        
-        # Scan for QR codes
         qr_codes = decode(img)
-        
         if not qr_codes:
             return jsonify({"error": "No QR code found"}), 404
-        
-        # Process each QR code found
+
         results = []
         for qr in qr_codes:
-            try:
-                # Decode QR data
-                data = json.loads(qr.data.decode('utf-8'))
-
-                # Normalize (strip version/timestamp and flatten reef)
-                normalized = normalize_record(data)
-
-                # Add to processed data
-                processed_data.append(normalized)
-                # Append to the running CSV immediately
-                csv_append_status = append_to_csv(normalized)
-
-                results.append({
-                    "status": "success",
-                    "message": f"Data recorded for Team {normalized.get('team', 'unknown')} Match {normalized.get('match', 'unknown')}",
-                    "csv_status": csv_append_status,
-                    "data": normalized
-                })
-            
-            except json.JSONDecodeError:
-                results.append({
-                    "status": "error",
-                    "message": "Invalid JSON data in QR code"
-                })
-        
-        return jsonify({
-            "message": "QR code(s) processed successfully",
-            "results": results
-        })
-    
+            data = json.loads(qr.data.decode('utf-8'))
+            normalized = normalize_record(data)
+            processed_data.append(normalized)
+            csv_status = append_to_csv(normalized)
+            results.append({
+                "status": "success",
+                "csv_status": csv_status,
+                "data": normalized
+            })
+        return jsonify({"message": "QR processed", "results": results})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route('/data')
-def view_data():
-    """View all processed data"""
-    return jsonify(processed_data)
 
 
 @app.route('/submit_json', methods=['POST'])
 def submit_json():
-    """Accept decoded JSON payloads from clients (browser-side decoding).
-    Appends directly to the running CSV.
-    """
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "No JSON payload received"}), 400
-
-        # Normalize payload: remove version/timestamp and flatten reef
+            return jsonify({"error": "No JSON received"}), 400
         normalized = normalize_record(data)
-
-        # Add to processed data and append to the running CSV
         processed_data.append(normalized)
-        csv_append_status = append_to_csv(normalized)
-
-        return jsonify({
-            "message": f"Data recorded for Team {normalized.get('team', 'unknown')} Match {normalized.get('match', 'unknown')}",
-            "data": normalized,
-            "csv_status": csv_append_status
-        })
-
+        csv_status = append_to_csv(normalized)
+        return jsonify({"message": "Data recorded", "csv_status": csv_status})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    data = request.get_json()
+    question = data.get("question")
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+    response = ask_groq(question)
+    return jsonify(response)
+
+
 if __name__ == '__main__':
-    # Use the certificates generated by mkcert (stored in certs directory)
     ssl_context = ('certs/localhost.pem', 'certs/localhost-key.pem')
     app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=ssl_context)

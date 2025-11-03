@@ -1,3 +1,5 @@
+reef.png
+reef_base64.txt
 # Certificate files and directories
 certs/
 *.pem
@@ -7,6 +9,9 @@ certs/
 
 # Python
 __pycache__/
+instance/
+*.pyc
+*.db
 *.py[cod]
 *$py.class
 venv/

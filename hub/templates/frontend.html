@@ -377,5 +377,61 @@
   // initialize display
   for (let k in counts) setDisplay(k);
 </script>
+<!-- AI Query Section -->
+<div id="ai-container" style="margin-top: 40px; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+  <h2 style="margin-bottom: 10px;">🤖 Ask AI About Scouting Data</h2>
+
+  <div style="display: flex; gap: 10px;">
+    <input id="ai-question" type="text" placeholder="Example: Which team scored the most coral?" 
+           style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px;">
+    <button id="ai-submit" 
+            style="padding: 10px 20px; background-color: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">
+      Ask
+    </button>
+  </div>
+
+  <div id="ai-loading" style="display: none; margin-top: 10px; color: #666;">Thinking...</div>
+  <div id="ai-result" style="margin-top: 15px; white-space: pre-wrap;"></div>
+</div>
+
+<script>
+document.getElementById("ai-submit").addEventListener("click", async () => {
+  const question = document.getElementById("ai-question").value.trim();
+  const resultDiv = document.getElementById("ai-result");
+  const loading = document.getElementById("ai-loading");
+  
+  if (!question) {
+    resultDiv.innerText = "Please enter a question.";
+    return;
+  }
+
+  resultDiv.innerText = "";
+  loading.style.display = "block";
+
+  try {
+    const response = await fetch("/ask", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question})
+    });
+
+    const data = await response.json();
+    loading.style.display = "none";
+
+    if (data.error) {
+      resultDiv.innerText = "⚠️ Error: " + data.error;
+    } else {
+      resultDiv.innerHTML = `
+        <b>SQL Query:</b><br><code>${data.query}</code><br><br>
+        <b>AI Summary:</b><br>${data.summary || "No summary available."}
+      `;
+    }
+  } catch (err) {
+    loading.style.display = "none";
+    resultDiv.innerText = "⚠️ Failed to contact server.";
+  }
+});
+</script>
+
 </body>
 </html>
