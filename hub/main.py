@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import requests
+import atexit
 
 # Optional native dependencies for server-side QR decoding.
 try:
@@ -333,19 +334,31 @@ def ask():
     return jsonify(response)
 
 def start_ngrok():
-    time.sleep(2)
     try:
-        subprocess.run(['ngrok', 'http', '5000'], check=True)
-        time.sleep(3)
-        try:
-            tunnel_data = requests.get("http://localhost:4040/api/tunnels").json()
-            public_url = tunnel_data['tunnels'][0]['public_url']
-            print(public_url)
-        except Exception as e:
-            print(e) 
-    except FileNotFoundError:
-        print("ngrok not found please install and add to PATH")
+        subprocess.run(["taskkill", "/IM", "ngrok.exe", "/F"], capture_output=True)
+    except Exception:
+        pass
+
+    time.sleep(1)
+    try:
+        subprocess.Popen(["ngrok", "http", "https://localhost:5000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(5)
+        tunnel_data = requests.get("http://127.0.0.1:4040/api/tunnels").json()
+        public_url = tunnel_data['tunnels'][0]['public_url']
+        print(f"\nngrok tunnel active: {public_url}")
+        print(f"Scanner page: {public_url}/scanner\n")
+    except Exception as e:
+        print(f"ngrok startup failed: {e}")
+def stop_ngrok():
+    try:
+        subprocess.run(["taskkill", "/IM", "ngrok.exe", "/F"], capture_output=True)
+        print("ngrok tunnel closed.")
+    except Exception:
+        print("Could not stop ngrok.")
+
+atexit.register(stop_ngrok)
+
 threading.Thread(target=start_ngrok, daemon=True).start()
 if __name__ == '__main__':
     ssl_context = ('certs/localhost.pem', 'certs/localhost-key.pem')
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=ssl_context)
