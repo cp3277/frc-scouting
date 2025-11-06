@@ -94,7 +94,7 @@
                 let canvas = document.getElementById('canvas');
                 let context = canvas.getContext('2d', { willReadFrequently: true });
                 let resultDiv = document.getElementById('result');
-                let dataList = document.getElementById('scanned-data');
+                let dataList = document.getElementById('data-list');
                 let scanning = false;
                 let lastScanned = new Set(); // Keep track of recently scanned codes
                 let scanTimeout = null;
@@ -260,7 +260,7 @@
 
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         video: {
-                            facingMode: { exact: 'environment' },
+                            facingMode: { ideal: 'environment' },
                             width: { ideal: 1280 },
                             height: { ideal: 720 }
                         }

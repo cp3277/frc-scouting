@@ -255,6 +255,8 @@ def append_to_csv(record: dict):
             df.to_csv(CURRENT_CSV, mode='w', header=True, index=False)
             return f"Created {os.path.basename(CURRENT_CSV)}"
         existing = pd.read_csv(CURRENT_CSV)
+        exisiting_columns = existing.columns.tolist()
+        df = df.reindex
         combined = pd.concat([existing, df], ignore_index=True, sort=False)
         combined.to_csv(CURRENT_CSV, index=False)
         return f"Appended to {os.path.basename(CURRENT_CSV)}"
