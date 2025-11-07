@@ -56,115 +56,104 @@ def ask_groq(question: str):
     client = Groq(api_key=GROQ_API_KEY)
 
     # Step 1: Generate SQL
+    # Step 1: Generate SQL
     prompt = f"""
     CRITICAL: Output ONLY the SQL query. Do NOT include any explanations, markdown formatting (like ```sql), or other text.
     You are a data analyst for an FRC team. Given a user question, output a valid PostgreSQL SQL query 
-    based on this schema:
+    based on this schema for the 'match_scouting' table:
 
     TABLE match_scouting (
-    org_key TEXT,
-    year INTEGER,
-    event_key TEXT,
-    match_key TEXT,
-    match_number INTEGER,
-    match_time TIMESTAMP,
-    alliance TEXT,
-    team_key TEXT,
-    
-    total_auto_points INTEGER,
-    total_spr_auto INTEGER,
-    total_teleop_points INTEGER,
-    total_spr_teleop INTEGER,
-    total_endgame_points INTEGER,
-    contributed_points INTEGER,
-    reliability_score INTEGER,
-    defensive_score INTEGER,
-    spr_points INTEGER,
+        id SERIAL PRIMARY KEY,
+        match INTEGER,
+        team INTEGER,
+        alliance TEXT,       -- 'red' or 'blue'
+        reef_L4 INTEGER,     -- Top level coral
+        reef_L3 INTEGER,
+        reef_L2 INTEGER,
+        reef_L1 INTEGER,     -- Bottom level coral
+        auto_peices INTEGER, -- Peices scored in autonomous
+        barge_algae INTEGER,
+        processor_count INTEGER,
+        climb TEXT,          -- 'no_climb', 'park', 'shallow', 'deep'
+        notes TEXT
+    );
 
-    count_auto_coral INTEGER,
-    count_teleop_coral INTEGER,
-    count_lvl1_coral INTEGER,
-    count_lvl2_coral INTEGER,
-    count_lvl3_coral INTEGER,
-    count_lvl4_coral INTEGER,
-    count_coral INTEGER,
-
-    count_processor_algae INTEGER,
-    count_barge_algae INTEGER,
-    count_dislodged_algae INTEGER,
-    count_auto_algae INTEGER,
-    count_teleop_algae INTEGER,
-    count_algae INTEGER,
-
-    count_teleop_pieces INTEGER,
-    count_auto_pieces INTEGER,
-
-    start_position_a BOOLEAN,
-    start_position_b BOOLEAN,
-    start_position_c BOOLEAN,
-    start_position_d BOOLEAN,
-    start_position_e BOOLEAN,
-    did_starting_zone BOOLEAN,
-
-    coral_lvl1_auto INTEGER,
-    coral_lvl2_auto INTEGER,
-    coral_lvl3_auto INTEGER,
-    coral_lvl4_auto INTEGER,
-    algae_barge_auto INTEGER,
-    algae_processor_auto INTEGER,
-    algae_dislodged_auto INTEGER,
-
-    twelve_position INTEGER,
-    two_position INTEGER,
-    four_position INTEGER,
-    six_position INTEGER,
-    eight_position INTEGER,
-    ten_position INTEGER,
-    no_scoring_position INTEGER,
-
-    spent_time_a NUMERIC(10,4),
-    spent_time_b NUMERIC(10,4),
-    spent_time_c NUMERIC(10,4),
-    cycle_time NUMERIC(10,4),
-    cycle_speed_factor NUMERIC(10,6),
-
-    hit_opponent_cage BOOLEAN,
-    intake_off_ground BOOLEAN,
-    dropped_coral_human BOOLEAN,
-
-    coral_lvl1_teleop INTEGER,
-    coral_lvl2_teleop INTEGER,
-    coral_lvl3_teleop INTEGER,
-    coral_lvl4_teleop INTEGER,
-    algae_barge_teleop INTEGER,
-    algae_processor_teleop INTEGER,
-    algae_dislodged_teleop INTEGER,
-
-    on_cage_start TEXT,
-    on_cage_end TEXT,
-    endgame_cage_status TEXT,
-
-    algae_stuck BOOLEAN,
-    coral_stuck BOOLEAN,
-    defense_rating TEXT,
-    explain_defense TEXT,
-
-    died_during_match BOOLEAN,
-    recovered_from_freeze BOOLEAN,
-    stopped_scoring BOOLEAN,
-    communication_problems TEXT
-);
-    # --- CRITICAL LOGIC MAPPING RULE for Endgame Status ---
-    # When analyzing the 'endgame_cage_status' field:
-    # 1. Any value containing the substring **'Off the ground (deep cage)'** (e.g., 'Off the ground (deep cage)') **MUST** be treated as a **SUCCESSFUL** cage climb or endgame action.
-    # 2. All other values must be treated as a FAILURE or INCOMPLETE attempt.
-    # 3. When generating the query for success rate, use the PostgreSQL 'LIKE' operator with a wildcard, for example: `WHERE endgame_cage_status LIKE '%off the ground%'` 
+    # --- NEW: CRITICAL LOGIC MAPPING RULE for Consistency ---
+    # When a user asks for "consistency", "reliability", or "predictability", you MUST use the statistical RANGE (MAX - MIN).
+    # 1. "Consistency" is the difference between a team's best (MAX) and worst (MIN) performance for a metric.
+    # 2. A SMALLER range (difference) is BETTER and means HIGHER consistency.
+    # 3. A LARGER range (difference) is WORSE and means LOWER consistency (more volatile).
+    # 4. HOW TO QUERY: To find the "most consistent" team for a metric (e.g., total points), you must GROUP BY team, calculate the range, and find the team with the SMALLEST range.
+    #
+    # Example: To find the "most consistent team" by total points:
+    #   -- First, define the total_points calculation
+    #   WITH TeamPoints AS (
+    #     SELECT
+    #       team,
+    #       match,
+    #       ( (reef_L4 * 5) + (reef_L3 * 3) + (reef_L2 * 2) + (reef_L1 * 1) + 
+    #         (auto_peices * 3) + (barge_algae * 2) + (processor_count * 2) +
+    #         (CASE WHEN climb IN ('shallow', 'deep') THEN 5 ELSE 0 END)
+    #       ) AS total_points
+    #     FROM match_scouting
+    #   )
+    #   -- Now, find the range for each team
+    #   SELECT
+    #     team,
+    #     MAX(total_points) AS max_score,
+    #     MIN(total_points) AS min_score,
+    #     (MAX(total_points) - MIN(total_points)) AS consistency_range
+    #   FROM TeamPoints
+    #   GROUP BY team
+    #   ORDER BY consistency_range ASC  -- ASC is critical: smallest range = most consistent
+    #   LIMIT 1;
     # ----------------------------------------------------
+    
+    # --- CRITICAL LOGIC MAPPING RULE for Game Context & KPIs ---
+    # 1. GAME PHASES:
+    #    - 'auto_peices' is scored in the AUTONOMOUS period.
+    #    - 'reef_L4', 'reef_L3', 'reef_L2', 'reef_L1', 'barge_algae', and 'processor_count' are scored in the TELEOP period.
+    #    - 'climb' is scored in the ENDGAME period.
+    # 2. TOTAL CORAL: When asked for "total coral" or "reef total", you must sum all levels:
+    #    (reef_L4 + reef_L3 + reef_L2 + reef_L1)
+    # 3. TOTAL ALGAE: When asked for "total algae", you must sum both types:
+    #    (barge_algae + processor_count)
+    # 4. TOTAL PIECES: When asked for "total pieces" or "total game pieces", you must sum all pieces from all periods:
+    #    (auto_peices + reef_L4 + reef_L3 + reef_L2 + reef_L1 + barge_algae + processor_count)
+    # 5. NOTES: The 'notes' column contains human observations (e.g., "robot died", "stuck"). Use `LIKE %...%` to find text in this column.
+    # ----------------------------------------------------
+
+    # --- CRITICAL LOGIC MAPPING RULE for Scoring Points ---
+    # When a user asks for "points", "score", or "total value", you MUST calculate it using these point values:
+    # 1. `reef_L4`: 5 points each
+    # 2. `reef_L3`: 4 points each
+    # 3. `reef_L2`: 3 points each
+    # 4. `reef_L1`: 2 point each
+    # 5. `auto_peices`: 7 points each
+    # 6. `barge_algae`: 4 points each
+    # 7. `processor_count`: 6 points each
+    # 8. `climb` ('deep'): 12 points, ('shallow'): 6 points, ('park'): 2 points, ('no_climb' as 0 points)
+    #
+    # Example: To find the total points for a team, you would use this SQL calculation:
+    # SUM(
+    #   (reef_L4 * 5) + (reef_L3 * 4) + (reef_L2 * 3) + (reef_L1 * 2) + 
+    #   (auto_peices * 7) + (barge_algae * 4) + (processor_count * 6) + (deep * 12) + (shallow * 6) + (park * 2)
+    # ) AS total_points
+    # ----------------------------------------------------
+    
+    # --- CRITICAL LOGIC MAPPING RULE for Climb Status ---
+    # When analyzing the 'climb' field:
+    # 1. Any value containing 'shallow' OR 'deep' (e.g., 'shallow', 'deep') **MUST** be treated as a **SUCCESSFUL** climb or endgame action.
+    # 2. All other values ('park', 'no_climb') must be treated as a FAILURE or INCOMPLETE attempt.
+    # 3. When generating the query for success rate, use the PostgreSQL IN operator, for example: `WHERE climb IN ('shallow', 'deep')` 
+    # ----------------------------------------------------
+    
     # --- CRITICAL QUERY LIMIT INSTRUCTION ---
     # 1. If the user asks for the 'most' or 'least' of a metric, use ORDER BY on the aggregated column.
     # 2. **ONLY** use the LIMIT clause (e.g., LIMIT 1 or LIMIT 5) if the user explicitly uses words like 'top 5', 'best team', 'single team', or 'highest'.
     # 3. If the user asks for a simple aggregated list (e.g., 'all teams' scores' or 'all results'), DO NOT use the LIMIT clause.
     # ------------------------------------------
+    
     The user asked: "{question}"
     Generate a valid, safe SQL SELECT query (PostgreSQL syntax) that retrieves relevant information.
     If the question asks for the 'most', 'least', 'average', or a total, ensure you use the appropriate aggregation function (SUM, AVG, COUNT, etc.) and use ORDER BY and LIMIT 1 to isolate the result.
@@ -221,7 +210,7 @@ def ask_groq(question: str):
     The user asked: "{question}".
     SQL query result: {data}.
     Write a concise, readable summary of what this means in FRC terms.
-    If the result set is empty, state clearly that no data was found for this query.
+    ONLY if the result set is empty, state clearly that no data was found for this query.
     """
     summary = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -247,21 +236,79 @@ def normalize_record(record: dict) -> dict:
             r[f'reef_{level}'] = reef.get(level) or reef.get(level.lower())
     return r
 
+def insert_data_to_db(record: dict):
+    """Inserts a single, flat data record into the PostgreSQL database."""
+    
+    # This SQL query MUST match your table name and column names.
+    # It assumes your table is named 'scouting_data' and columns match the JSON.
+    sql = """
+    INSERT INTO match_scouting (
+        match, team, alliance, 
+        reef_L4, reef_L3, reef_L2, reef_L1, 
+        auto_peices, barge_algae, processor_count, 
+        climb, notes
+    )
+    VALUES (
+        %(match)s, %(team)s, %(alliance)s,
+        %(reef_L4)s, %(reef_L3)s, %(reef_L2)s, %(reef_L1)s,
+        %(auto_peices)s, %(barge_algae)s, %(processor_count)s,
+        %(climb)s, %(notes)s
+    )
+    """
+    
+    conn = None
+    try:
+        # Connect to the database
+        conn = psycopg2.connect(DB_URL)
+        cur = conn.cursor()
+        
+        # Execute the query, passing the 'record' dictionary as parameters
+        # This is safe from SQL injection
+        cur.execute(sql, record)
+        
+        # Commit the transaction to save the data
+        conn.commit()
+        cur.close()
+        
+        # Success!
+        print(f"Successfully inserted Team {record.get('team')} Match {record.get('match')} to DB.")
+        return "DB insert successful"
+        
+    except Exception as e:
+        # If anything goes wrong, roll back the change
+        if conn:
+            conn.rollback()
+        print(f"DB Insert Error: {e}")
+        return f"DB insert failed: {e}"
+        
+    finally:
+        # Always close the connection
+        if conn:
+            conn.close()
 
 def append_to_csv(record: dict):
     try:
-        df = pd.DataFrame([record])
+        if isinstance(record, str):
+            record = json.loads(record)
+        flat_record = {k: (v if isinstance(v, (int, float, str)) else str(v))
+                       for k, v in record.items()}
+
+        df = pd.DataFrame([flat_record])
+
         if not os.path.exists(CURRENT_CSV):
             df.to_csv(CURRENT_CSV, mode='w', header=True, index=False)
             return f"Created {os.path.basename(CURRENT_CSV)}"
+
         existing = pd.read_csv(CURRENT_CSV)
-        exisiting_columns = existing.columns.tolist()
-        df = df.reindex
+        df = df.reindex(columns=existing.columns.union(df.columns), fill_value="")
         combined = pd.concat([existing, df], ignore_index=True, sort=False)
         combined.to_csv(CURRENT_CSV, index=False)
+
         return f"Appended to {os.path.basename(CURRENT_CSV)}"
+
     except Exception as e:
         return f"Failed to append: {e}"
+
 
 @app.route('/submit_json', methods=['POST'])
 def submit_json():
@@ -269,13 +316,26 @@ def submit_json():
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON received"}), 400
-        normalized = normalize_record(data)
+        
+        # The data is already perfect, as we fixed before
+        normalized = data
         processed_data.append(normalized)
+        
+        # --- HERE'S THE CHANGE ---
+        # Call both functions and get their status
         csv_status = append_to_csv(normalized)
-        return jsonify({"message": "Data recorded", "csv_status": csv_status})
+        db_status = insert_data_to_db(normalized)
+        
+        # Return both statuses in the response
+        return jsonify({
+            "message": "Data recorded", 
+            "csv_status": csv_status,
+            "db_status": db_status
+        })
+        # -------------------------
+        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/ask', methods=['POST'])
 def ask():

@@ -16,6 +16,7 @@ instance/
 *$py.class
 venv/
 .env
+scout_radioz.sql
 
 # Data directories (both repo and local)
 collected_data/
