@@ -99,7 +99,6 @@ def ask_groq(question: str):
     #   )
     #   -- Now, find the range for each team
     #   SELECT
-    *REMOVED*
     #     (MAX(total_points) - MIN(total_points)) AS consistency_range
     #   FROM TeamPoints
     #   GROUP BY team
@@ -109,7 +108,6 @@ def ask_groq(question: str):
     
     # --- CRITICAL LOGIC MAPPING RULE for Game Context & KPIs ---
     # 1. GAME PHASES:
-    *REMOVED*
     #    (auto_peices + reef_L4 + reef_L3 + reef_L2 + reef_L1 + barge_algae + processor_count)
     # 5. NOTES: The 'notes' column contains human observations (e.g., "robot died", "stuck"). Use `LIKE %...%` to find text in this column.
     # ----------------------------------------------------
@@ -133,17 +131,14 @@ def ask_groq(question: str):
     # ----------------------------------------------------
     
     # --- CRITICAL LOGIC MAPPING RULE for Climb Status ---
-    *REMOVED*
     # 3. When generating the query for success rate, use the PostgreSQL IN operator, for example: `WHERE climb IN ('shallow', 'deep')` 
     # ----------------------------------------------------
     
     # --- CRITICAL QUERY LIMIT INSTRUCTION ---
-    *REMOVED*
     # 3. If the user asks for a simple aggregated list (e.g., 'all teams' scores' or 'all results'), DO NOT use the LIMIT clause.
     # ------------------------------------------
     
     The user asked: "{question}"
-    *REMOVED*
     Do not include INSERT/DELETE/UPDATE/DROP/ALTER statements.
     """
     completion = client.chat.completions.create(
