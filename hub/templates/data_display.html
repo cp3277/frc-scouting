@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Data Display</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f9;
+    }
+    .container {
+      max-width: 960px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    .data-table th {
+      background-color: #f2f2f2;
+      color: #333;
+    }
+    .query-section {
+      margin-top: 20px;
+    }
+    .query-section textarea {
+      width: 100%;
+      height: 100px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 14px;
+    }
+    .query-section button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .query-section button:hover {
+      background-color: #0056b3;
+    }
+    .response {
+      margin-top: 20px;
+      padding: 10px;
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .section-card {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f4f4f4;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Data Display</h1>
+    
+    <div style="margin-bottom: 20px; text-align: center;">
+      <a href="/scanner" style="padding: 10px 15px; margin: 0 5px; background: #0b69ff; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">QR Scanner</a>
+      <a href="/" style="padding: 10px 15px; margin: 0 5px; background: #0b69ff; color: white; text-decoration: none; border-radius: 5px; display: inline-block;">Scouting Form</a>
+    </div>
+
+    <div class="section-card">
+      <h2>Graphs</h2>
+      <div id="graphs-container" style="display: flex; flex-wrap: wrap; gap: 20px;">
+        <canvas id="fuelGraph" width="400" height="200"></canvas>
+        <canvas id="climbGraph" width="400" height="200"></canvas>
+      </div>
+    </div>
+
+    <div class="query-section">
+      <h2>Ask the AI Agent</h2>
+      <textarea id="query" placeholder="Type your query here..."></textarea>
+      <button onclick="queryAI()">Submit Query</button>
+    </div>
+
+    <table class="data-table" id="data-table">
+      <thead>
+        <tr>
+          <th>Match</th>
+          <th>Team</th>
+          <th>Alliance</th>
+          <th>Auto Fuel</th>
+          <th>Auto Climb</th>
+          <th>Fuel Balls</th>
+          <th>Passing</th>
+          <th>Turreted</th>
+          <th>Defense</th>
+          <th>Trench</th>
+          <th>Climb</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Data rows will be dynamically inserted here -->
+      </tbody>
+    </table>
+
+    <div class="response" id="response">
+      <!-- AI response will be displayed here -->
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      // Helper: format integer-based values into 'Yes' / 'No' for display
+      function formatBoolDisplay(val) {
+        // Handle numeric values (integers stored as 1/0 or 10/0)
+        if (typeof val === 'number') {
+          return val > 0 ? 'Yes' : 'No';
+        }
+        // Handle string/boolean values
+        if (val === true || val === '1' || String(val).toLowerCase() === 'true' || String(val).toLowerCase() === 't') return 'Yes';
+        if (val === false || val === '0' || String(val).toLowerCase() === 'false' || String(val).toLowerCase() === 'f') return 'No';
+        return val > 0 ? 'Yes' : 'No';
+      }
+      async function queryAI() {
+        const query = document.getElementById('query').value;
+        const responseDiv = document.getElementById('response');
+
+        responseDiv.textContent = 'Processing...';
+
+        try {
+          const response = await fetch('/query-ai', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query })
+          });
+
+          const data = await response.json();
+          responseDiv.textContent = data.summary || 'No response received.';
+        } catch (error) {
+          responseDiv.textContent = 'Error: ' + error.message;
+        }
+      }
+
+      async function fetchData() {
+        try {
+          const response = await fetch('/fetch-database-data');
+          const data = await response.json();
+
+          if (data.error) {
+            document.getElementById('data-container').innerText = `Error: ${data.error}`;
+            return;
+          }
+
+          const tbody = document.querySelector('#data-table tbody');
+          tbody.innerHTML = '';
+
+          // Desired display order and mapping to data keys
+          const columns = [
+            { key: 'match' },
+            { key: 'team' },
+            { key: 'alliance' },
+            { key: 'auto_fuel' },
+            { key: 'auto_climb' },
+            { key: 'fuel_balls' },
+            { key: 'passing' },
+            { key: 'is_turreted' },
+            { key: 'defense' },
+            { key: 'fits_trench' },
+            { key: 'climb' }
+          ];
+
+          data.forEach(row => {
+            const tr = document.createElement('tr');
+            columns.forEach(col => {
+              let val = row[col.key];
+              if (val === null || val === undefined) val = '';
+
+              // Normalize boolean-like fields for display as Yes/No
+              if (col.key === 'is_turreted' || col.key === 'auto_climb' || col.key === 'fits_trench' || col.key === 'defense' || col.key === 'passing') {
+                const boolLabel = formatBoolDisplay(val);
+                if (boolLabel !== '') val = boolLabel;
+                else val = '';
+              }
+
+              const td = document.createElement('td');
+              td.innerText = val;
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          });
+
+        } catch (error) {
+          document.getElementById('data-container').innerText = `Error fetching data: ${error.message}`;
+        }
+      }
+
+      async function fetchGraphData() {
+        try {
+          // Use the real database-backed endpoint
+          const response = await fetch('/fetch-database-data');
+          const data = await response.json();
+
+          if (!Array.isArray(data) || data.length === 0) {
+            console.warn('No graph data available');
+            return;
+          }
+
+          // Aggregate per-team totals
+          const teamAgg = {};
+          data.forEach(row => {
+            // skip rows without a valid team
+            if (row.team === null || row.team === undefined) return;
+            const teamKey = String(row.team);
+            if (!teamAgg[teamKey]) teamAgg[teamKey] = { fuelTotal: 0, matches: 0, autoPoints: 0, endgamePoints: 0 };
+
+            const fuel = Number(row.fuel_balls) || 0;
+            const autoFuel = Number(row.auto_fuel) || 0;
+            teamAgg[teamKey].fuelTotal += fuel + autoFuel;
+
+            // auto_climb: now stored as points directly (10 or 0)
+            const autoClimb = Number(row.auto_climb) || 0;
+            teamAgg[teamKey].autoPoints += autoClimb;
+
+            // endgame climb points
+            const climb = row.climb || 'no_climb';
+            const endgame = climb === 'L3' ? 30 : climb === 'L2' ? 20 : climb === 'L1' ? 10 : 0;
+            teamAgg[teamKey].endgamePoints += endgame;
+
+            teamAgg[teamKey].matches += 1;
+          });
+
+          // Build team list sorted by descending average fuel (highest averages first)
+          const teamEntries = Object.keys(teamAgg).map(t => {
+            const agg = teamAgg[t];
+            const matches = agg.matches || 1;
+            return {
+              team: t,
+              avgFuel: agg.fuelTotal / matches,
+              avgAuto: agg.autoPoints / matches,
+              avgEnd: agg.endgamePoints / matches
+            };
+          });
+
+          teamEntries.sort((a, b) => b.avgFuel - a.avgFuel);
+
+          const teams = teamEntries.map(e => e.team);
+          const avgFuel = teamEntries.map(e => +e.avgFuel.toFixed(2));
+          const avgAuto = teamEntries.map(e => +e.avgAuto.toFixed(2));
+          const avgEnd = teamEntries.map(e => +e.avgEnd.toFixed(2));
+
+          // Remove any previous canvases and redraw charts cleanly
+          // (Chart.js can reuse canvases, but this ensures clean updates)
+          const fuelCtx = document.getElementById('fuelGraph').getContext('2d');
+          const climbCtx = document.getElementById('climbGraph').getContext('2d');
+
+          new Chart(fuelCtx, {
+            type: 'bar',
+            data: {
+              labels: teams,
+              datasets: [{
+                label: 'Average Fuel (per match)',
+                data: avgFuel,
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 1
+              }]
+            },
+            options: { responsive: true }
+          });
+
+          // Stacked bar chart: auto climb stacked on top of endgame climb
+          new Chart(climbCtx, {
+            type: 'bar',
+            data: {
+              labels: teams,
+              datasets: [
+                {
+                  label: 'Average Auto Climb Points',
+                  data: avgAuto,
+                  backgroundColor: 'rgba(153, 102, 255, 0.6)',
+                  borderColor: 'rgba(153, 102, 255, 1)',
+                  borderWidth: 1,
+                  stack: 'climbStack'
+                },
+                {
+                  label: 'Average Endgame Climb Points',
+                  data: avgEnd,
+                  backgroundColor: 'rgba(255, 159, 64, 0.6)',
+                  borderColor: 'rgba(255, 159, 64, 1)',
+                  borderWidth: 1,
+                  stack: 'climbStack'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                tooltip: { mode: 'index', intersect: false }
+              },
+              scales: {
+                x: { stacked: true },
+                y: { stacked: true }
+              }
+            }
+          });
+
+        } catch (error) {
+          console.error('Error fetching graph data:', error);
+        }
+      }
+
+      // Fetch data on page load
+      fetchData();
+      fetchGraphData();
+    </script>
+
+    <div id="data-container" style="margin-top: 20px;"></div>
+</body>
+</html>

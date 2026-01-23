@@ -10,7 +10,7 @@ import subprocess
 import threading
 import time
 import requests
-import atexit
+import re
 
 # --- Load environment variables ---
 load_dotenv()
@@ -18,6 +18,7 @@ DB_URL = os.getenv("DATABASE_URL")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 app = Flask(__name__)
+
 @app.route('/')
 def frontend():
     """Main scouting frontend with AI and form."""
@@ -25,8 +26,55 @@ def frontend():
 
 @app.route('/scanner')
 def scanner():
-    """QR scanner page (previously the default)."""
+    """QR scanner page."""
     return render_template('index.html')
+
+@app.route('/data-display')
+def data_display():
+    """Data display page."""
+    return render_template('data_display.html')
+
+@app.route('/get-data', methods=['GET'])
+def get_data():
+    """Fetch data for display."""
+    # Replace with actual database or CSV fetching logic
+    data = [
+        {"Column 1": "Value 1", "Column 2": "Value 2", "Column 3": "Value 3"},
+        {"Column 1": "Value A", "Column 2": "Value B", "Column 3": "Value C"}
+    ]
+    return jsonify(data)
+
+@app.route('/query-ai', methods=['POST'])
+def query_ai():
+    """Handle AI queries."""
+    try:
+        data = request.get_json()
+        print(f"[DEBUG] Received data for AI query: {data}")
+
+        if not data or 'query' not in data:
+            print("[ERROR] No query provided in the request.")
+            return jsonify({"error": "No query provided."}), 400
+
+        question = data['query']
+        print(f"[DEBUG] Query extracted: {question}")
+
+        result = ask_groq(question)
+        print(f"[DEBUG] AI pipeline result: {result}")
+
+        return jsonify(result)
+    except Exception as e:
+        print(f"[ERROR] Exception in /query-ai: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/fetch-database-data', methods=['GET'])
+def fetch_database_data():
+    """Fetch all data from the match_scouting table."""
+    try:
+        query = "SELECT * FROM match_scouting;"
+        data = run_sql_query(query)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 # --- Directory setup ---
 DOCS_DIR = os.path.join(os.path.expanduser('~'), 'Documents')
@@ -36,7 +84,6 @@ for d in [FRC_DATA_DIR, CSV_DIR]:
     os.makedirs(d, exist_ok=True)
 CURRENT_CSV = os.path.join(CSV_DIR, "scouting_data_current.csv")
 processed_data = []
-
 
 # --- Database utility ---
 def run_sql_query(query):
@@ -49,309 +96,250 @@ def run_sql_query(query):
     conn.close()
     return [dict(zip(columns, row)) for row in rows]
 
-
-# --- Groq AI integration ---
-# --- Groq AI integration ---
+# --- Groq AI integration for REBUILT 2026 ---
 def ask_groq(question: str):
     client = Groq(api_key=GROQ_API_KEY)
 
-    # Step 1: Generate SQL
+    # Step 1: Generate SQL based on 2026 Game Rules
     prompt = f"""
-    CRITICAL: Output ONLY the SQL query. Do NOT include any explanations, markdown formatting (like ```sql), or other text.
-    You are a data analyst for an FRC team. Given a user question, output a valid PostgreSQL SQL query 
-    based on this schema for the 'match_scouting' table:
+    CRITICAL: Output ONLY the SQL query. Do NOT include explanations or markdown.
+    You are a data analyst for FRC Team "Roboforce". Output a PostgreSQL query for:
 
     TABLE match_scouting (
         id SERIAL PRIMARY KEY,
         match INTEGER,
         team INTEGER,
-        alliance TEXT,       -- 'red' or 'blue'
-        reef_L4 INTEGER,     -- Top level coral
-        reef_L3 INTEGER,
-        reef_L2 INTEGER,
-        reef_L1 INTEGER,     -- Bottom level coral
-        auto_peices INTEGER, -- Peices scored in autonomous
-        barge_algae INTEGER,
-        processor_count INTEGER,
-        climb TEXT,          -- 'no_climb', 'park', 'shallow', 'deep'
+        alliance TEXT,        -- 'red' or 'blue'
+        fuel_balls INTEGER,   -- Teleop Fuel (1pt each)
+        auto_fuel INTEGER,    -- Auto Fuel (1pt each)
+        is_turreted INTEGER,  -- 1 if yes, 0 if no
+        fits_trench INTEGER,  -- 1 if fits 22" trench
+        climb TEXT,           -- 'no_climb', 'L1', 'L2', 'L3'
+        auto_climb INTEGER,   -- 1 if L1 Auto Climb (15pts)
         notes TEXT
     );
 
-    # --- NEW: CRITICAL LOGIC MAPPING RULE for Rounding ---
-    # When calculating an `AVG` or any other division that results in a decimal,
-    # you MUST round the result to 2 decimal places using `ROUND(..., 2)`.
-    # Example: `ROUND(AVG(total_points), 2) AS average_points`
-    # ----------------------------------------------------
+    SCORING RULES:
+    1. Fuel: 1pt per ball.
+    2. Teleop Climb: 'L3'=30, 'L2'=20, 'L1'=10.
+    3. Auto Climb: auto_climb=1 is 15pts.
+    4. Consistency: Smallest (MAX - MIN) range per team.
+    5. Averages: ROUND(AVG(...), 2).
 
-    # --- CRITICAL LOGIC MAPPING RULE for Consistency ---
-    # When a user asks for "consistency", "reliability", or "predictability", you MUST use the statistical RANGE (MAX - MIN).
-    # 1. "Consistency" is the difference between a team's best (MAX) and worst (MIN) performance for a metric.
-    # 2. A SMALLER range (difference) is BETTER and means HIGHER consistency.
-    # 3. A LARGER range (difference) is WORSE and means LOWER consistency (more volatile).
-    # 4. HOW TO QUERY: To find the "most consistent" team for a metric (e.g., total points), you must GROUP BY team, calculate the range, and find the team with the SMALLEST range.
-    #
-    # Example: To find the "most consistent team" by total points:
-    #   -- First, define the total_points calculation
-    #   WITH TeamPoints AS (
-    #       ) AS total_points
-    #     FROM match_scouting
-    #   )
-    #   -- Now, find the range for each team
-    #   SELECT
-    #     (MAX(total_points) - MIN(total_points)) AS consistency_range
-    #   FROM TeamPoints
-    #   GROUP BY team
-    #   ORDER BY consistency_range ASC  -- ASC is critical: smallest range = most consistent
-    #   LIMIT 1;
-    # ----------------------------------------------------
-    
-    # --- CRITICAL LOGIC MAPPING RULE for Game Context & KPIs ---
-    # 1. GAME PHASES:
-    #    (auto_peices + reef_L4 + reef_L3 + reef_L2 + reef_L1 + barge_algae + processor_count)
-    # 5. NOTES: The 'notes' column contains human observations (e.g., "robot died", "stuck"). Use `LIKE %...%` to find text in this column.
-    # ----------------------------------------------------
-
-    # --- CRITICAL LOGIC MAPPING RULE for Scoring Points ---
-    # When a user asks for "points", "score", or "total value", you MUST calculate it using these point values:
-    # 8. `climb`: 'deep' = 12 points, 'shallow' = 6 points, 'park' = 2 points, 'no_climb' = 0 points
-    #
-    # Example: To find the total points for a team, you would use this SQL calculation:
-    # SUM(
-    #   (reef_L4 * 5) + (reef_L3 * 4) + (reef_L2 * 3) + (reef_L1 * 2) + 
-    #   (auto_peices * 7) + (barge_algae * 4) + (processor_count * 6) +
-    #   (CASE
-    #       WHEN climb = 'deep' THEN 12
-    #       WHEN climb = 'shallow' THEN 6
-    #       WHEN climb = 'park' THEN 2
-    #       ELSE 0
-    #   END)
-    # ) AS total_points
-    # ----------------------------------------------------
-    
-    # --- CRITICAL LOGIC MAPPING RULE for Climb Status ---
-    # 3. When generating the query for success rate, use the PostgreSQL IN operator, for example: `WHERE climb IN ('shallow', 'deep')` 
-    # ----------------------------------------------------
-    
-    # --- CRITICAL QUERY LIMIT INSTRUCTION ---
-    # 3. If the user asks for a simple aggregated list (e.g., 'all teams' scores' or 'all results'), DO NOT use the LIMIT clause.
-    # ------------------------------------------
-    
     The user asked: "{question}"
-    Do not include INSERT/DELETE/UPDATE/DROP/ALTER statements.
     """
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    sql_query = completion.choices[0].message.content.strip()
 
-    # --- 💡 DEBUG & CLEANUP STEP ---
-    print("--- 🔍 AI Generated SQL Query (Raw) ---")
-    print(sql_query)
-    print("-------------------------------------")
+    print(f"[DEBUG] Sending prompt to Groq API: {prompt}")
 
-    # CRITICAL CLEANUP: Remove Markdown backticks (```sql ... ```) if the AI includes them
-    if sql_query.startswith('```'):
-        # Strip outer backticks and any optional language tag (like 'sql\n')
-        sql_query = sql_query.strip('`').strip()
-        if sql_query.lower().startswith('sql'):
-             sql_query = sql_query.replace('sql', '', 1).strip()
-        print("--- ✅ Cleaned SQL Query (Executing) ---")
-        print(sql_query)
-        print("---------------------------------------")
-    
-    # Simple Guardrail: Ensure it starts with SELECT and isn't destructive
-    normalized_query = sql_query.upper().strip()
-    if not normalized_query.startswith("SELECT"):
-        return {"error": "AI attempted to generate a non-SELECT query. Aborting execution.", "query": sql_query}
-        
-    # --- End DEBUG & CLEANUP STEP ---
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        sql_query = completion.choices[0].message.content.strip()
+        print(f"[DEBUG] Groq API response: {sql_query}")
+    except Exception as e:
+        print(f"[ERROR] Groq API call failed: {e}")
+        return {"error": str(e)}
+
+    sql_query = sql_query.replace('```sql', '').replace('```', '').strip()
+
+    # Fix boolean * integer issues: Postgres won't allow boolean * 15
+    # Replace occurrences like `auto_climb * 15` with a CASE that yields 15 when true.
+    if re.search(r"auto_climb\s*\*\s*15", sql_query, flags=re.IGNORECASE):
+        fixed_sql = re.sub(r"auto_climb\s*\*\s*15",
+                           "(CASE WHEN auto_climb THEN 15 ELSE 0 END)",
+                           sql_query,
+                           flags=re.IGNORECASE)
+        print(f"[DEBUG] Transformed SQL to avoid boolean*int: {fixed_sql}")
+        sql_query = fixed_sql
+
+    if not sql_query.upper().startswith("SELECT"):
+        print(f"[DEBUG] Non-SELECT query blocked: {sql_query}")
+        return {"error": "Non-SELECT query blocked.", "query": sql_query}
 
     # Step 2: Execute SQL
     try:
         data = run_sql_query(sql_query)
-        
-        # --- 💡 DEBUG STEP: Print the data results ---
-        print("--- 📊 Database Query Results ---")
-        print(data)
-        print("---------------------------------")
-        # --- End DEBUG STEP ---
-
+        print(f"[DEBUG] SQL query executed successfully. Data: {data}")
     except Exception as e:
-        # If the execution fails, print the full error context
-        print(f"--- ❌ SQL Execution FAILED ---")
-        print(f"Error: {e}")
-        print(f"Failing Query: {sql_query}")
-        print("---------------------------------")
-        return {"error": f"SQL error: {e}", "query": sql_query}
+        print(f"[ERROR] SQL query execution failed: {e}")
+        return {"error": str(e), "query": sql_query}
 
     # Step 3: Summarize results
-    summary_prompt = f"""
-    The user asked: "{question}".
-    SQL query result: {data}.
-    Write a concise, readable summary of what this means in FRC terms.
-    ONLY if the result set is empty, state clearly that no data was found for this query.
-    """
-    summary = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": summary_prompt}],
-    )
+    summary_prompt = f"User asked: '{question}'. Results: {data}. Provide a simple and clear summary in plain English."
+    print(f"[DEBUG] Sending summary prompt to Groq API: {summary_prompt}")
+
+    try:
+        summary = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": summary_prompt}],
+        )
+        summary_text = summary.choices[0].message.content.strip()
+        print(f"[DEBUG] Groq API summary response: {summary_text}")
+    except Exception as e:
+        print(f"[ERROR] Groq API summary call failed: {e}")
+        return {"error": str(e), "query": sql_query, "data": data}
 
     return {
         "query": sql_query,
         "data": data,
-        "summary": summary.choices[0].message.content.strip(),
+        "summary": summary_text,
     }
 
-# --- Existing scouting functions ---
-def normalize_record(record: dict) -> dict:
-    if not isinstance(record, dict):
-        return record
-    r = dict(record)
-    r.pop('version', None)
-    r.pop('timestamp', None)
-    reef = r.pop('reef', None)
-    if isinstance(reef, dict):
-        for level in ['L4', 'L3', 'L2', 'L1']:
-            r[f'reef_{level}'] = reef.get(level) or reef.get(level.lower())
-    return r
+# Ensure the insert_data_to_db function is defined
 
 def insert_data_to_db(record: dict):
-    """Inserts a single, flat data record into the PostgreSQL database."""
-    
-    # This SQL query MUST match your table name and column names.
-    # It assumes your table is named 'scouting_data' and columns match the JSON.
+    """Inserts data into the PostgreSQL database."""
     sql = """
     INSERT INTO match_scouting (
-        match, team, alliance, 
-        reef_L4, reef_L3, reef_L2, reef_L1, 
-        auto_peices, barge_algae, processor_count, 
-        climb, notes
-    )
-    VALUES (
-        %(match)s, %(team)s, %(alliance)s,
-        %(reef_L4)s, %(reef_L3)s, %(reef_L2)s, %(reef_L1)s,
-        %(auto_peices)s, %(barge_algae)s, %(processor_count)s,
-        %(climb)s, %(notes)s
+        match, team, alliance, fuel_balls, auto_fuel, 
+        is_turreted, fits_trench, climb, auto_climb, notes,
+        defense, passing
+    ) VALUES (
+        %(match)s, %(team)s, %(alliance)s, %(fuel_balls)s, %(auto_fuel)s,
+        %(is_turreted)s, %(fits_trench)s, %(climb)s, %(auto_climb)s, %(notes)s,
+        %(defense)s, %(passing)s
     )
     """
-    
     conn = None
     try:
-        # Connect to the database
         conn = psycopg2.connect(DB_URL)
         cur = conn.cursor()
-        
-        # Execute the query, passing the 'record' dictionary as parameters
-        # This is safe from SQL injection
         cur.execute(sql, record)
-        
-        # Commit the transaction to save the data
         conn.commit()
         cur.close()
-        
-        # Success!
-        print(f"Successfully inserted Team {record.get('team')} Match {record.get('match')} to DB.")
         return "DB insert successful"
-        
     except Exception as e:
-        # If anything goes wrong, roll back the change
-        if conn:
-            conn.rollback()
-        print(f"DB Insert Error: {e}")
-        return f"DB insert failed: {e}"
-        
+        if conn: conn.rollback()
+        print(f"[ERROR] Database insertion failed: {e}")
+        return f"DB failed: {e}"
     finally:
-        # Always close the connection
-        if conn:
-            conn.close()
+        if conn: conn.close()
+
 
 def append_to_csv(record: dict):
+    """Append a scouting record to CURRENT_CSV with consistent columns and types.
+
+    This mirrors the columns used by `insert_data_to_db` so CSV and DB stay aligned.
+    Booleans are written as integers (1/0) for portability.
+    """
     try:
-        if isinstance(record, str):
-            record = json.loads(record)
-        flat_record = {k: (v if isinstance(v, (int, float, str)) else str(v))
-                       for k, v in record.items()}
+        fieldnames = [
+            'match', 'team', 'alliance', 'fuel_balls', 'auto_fuel',
+            'is_turreted', 'fits_trench', 'climb', 'auto_climb', 'notes',
+            'defense', 'passing'
+        ]
 
-        df = pd.DataFrame([flat_record])
+        # Normalize values and ensure keys exist
+        normalized = {}
+        normalized['match'] = int(record.get('match') or 0)
+        normalized['team'] = int(record.get('team') or 0)
+        normalized['alliance'] = record.get('alliance') or ''
+        normalized['fuel_balls'] = int(record.get('fuel_balls') or 0)
+        normalized['auto_fuel'] = int(record.get('auto_fuel') or 0)
 
-        if not os.path.exists(CURRENT_CSV):
+        # Booleans -> 1/0
+        normalized['is_turreted'] = 1 if bool(record.get('is_turreted')) else 0
+        normalized['fits_trench'] = 1 if bool(record.get('fits_trench')) else 0
+
+        normalized['climb'] = record.get('climb') or 'no_climb'
+        normalized['auto_climb'] = 10 if bool(record.get('auto_climb')) else 0
+        normalized['notes'] = record.get('notes') or ''
+
+        normalized['defense'] = 1 if bool(record.get('defense')) else 0
+        normalized['passing'] = 1 if bool(record.get('passing')) else 0
+
+        df = pd.DataFrame([normalized], columns=fieldnames)
+
+        # Write header if file doesn't exist or is empty
+        write_header = not os.path.exists(CURRENT_CSV) or os.path.getsize(CURRENT_CSV) == 0
+        if write_header:
             df.to_csv(CURRENT_CSV, mode='w', header=True, index=False)
-            return f"Created {os.path.basename(CURRENT_CSV)}"
+        else:
+            df.to_csv(CURRENT_CSV, mode='a', header=False, index=False)
 
-        existing = pd.read_csv(CURRENT_CSV)
-        df = df.reindex(columns=existing.columns.union(df.columns), fill_value="")
-        combined = pd.concat([existing, df], ignore_index=True, sort=False)
-        combined.to_csv(CURRENT_CSV, index=False)
-
-        return f"Appended to {os.path.basename(CURRENT_CSV)}"
-
+        return "CSV updated successfully"
     except Exception as e:
+        print(f"CSV Error: {e}")
         return f"Failed to append: {e}"
-
 
 @app.route('/submit_json', methods=['POST'])
 def submit_json():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No JSON received"}), 400
-        
-        # The data is already perfect, as we fixed before
-        normalized = data
-        processed_data.append(normalized)
-        
-        # --- HERE'S THE CHANGE ---
-        # Call both functions and get their status
-        csv_status = append_to_csv(normalized)
-        db_status = insert_data_to_db(normalized)
-        
-        # Return both statuses in the response
-        return jsonify({
-            "message": "Data recorded", 
-            "csv_status": csv_status,
-            "db_status": db_status
-        })
-        # -------------------------
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    data = request.get_json()
+    if not data:
+        print("[DEBUG] No data received in /submit_json")
+        return jsonify({"error": "No data"}), 400
+
+    print(f"[DEBUG] Data received: {data}")
+
+    if 'notes' not in data:
+        data['notes'] = ""  # Default to an empty string if 'notes' is missing
+
+    # Convert all checkbox fields to boolean
+    checkbox_fields = ['is_turreted', 'defense', 'passing', 'fits_trench']
+    for field in checkbox_fields:
+        data[field] = bool(data.get(field, 0))
+
+    # Convert 'auto_climb' to points (10 if true, 0 if false)
+    data['auto_climb'] = 10 if bool(data.get('auto_climb', 0)) else 0
+
+    csv_status = append_to_csv(data)
+    print(f"[DEBUG] CSV status: {csv_status}")
+
+    db_status = insert_data_to_db(data)
+    print(f"[DEBUG] Database status: {db_status}")
+
+    return jsonify({
+        "csv_status": csv_status,
+        "db_status": db_status
+    })
 
 @app.route('/ask', methods=['POST'])
 def ask():
-    data = request.get_json()
-    question = data.get("question")
-    if not question:
-        return jsonify({"error": "No question provided"}), 400
-    response = ask_groq(question)
-    return jsonify(response)
+    question = request.get_json().get("question")
+    print(f"[DEBUG] AI question received: {question}")
 
+    result = ask_groq(question)
+    print(f"[DEBUG] AI result: {result}")
+
+    return jsonify(result)
+
+# --- Ngrok & Startup ---
 def start_ngrok():
     try:
-        subprocess.run(["taskkill", "/IM", "ngrok.exe", "/F"], capture_output=True)
-    except Exception:
+        # Check if Ngrok is already running
+        response = requests.get("http://127.0.0.1:4040/api/tunnels")
+        if response.status_code == 200:
+            tunnels = response.json().get("tunnels", [])
+            if tunnels:
+                public_url = tunnels[0]["public_url"]
+                print(f"Ngrok is already running at: {public_url}")
+                return
+    except requests.ConnectionError:
+        # Ngrok is not running, so start it
         pass
 
-    time.sleep(1)
     try:
-        subprocess.Popen(["ngrok", "http", "https://localhost:5000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(5)
-        tunnel_data = requests.get("http://127.0.0.1:4040/api/tunnels").json()
-        public_url = tunnel_data['tunnels'][0]['public_url']
-        print(f"\nngrok tunnel active: {public_url}")
-        print(f"Scanner page: {public_url}/scanner\n")
+        # Updated to forward HTTP traffic instead of HTTPS to avoid malformed requests
+        subprocess.Popen(["ngrok", "http", "5000", "--pooling-enabled"], stdout=subprocess.DEVNULL)
+        time.sleep(5)  # Increased delay to allow Ngrok to start
+        response = requests.get("http://127.0.0.1:4040/api/tunnels")
+        tunnels = response.json().get("tunnels", [])
+        if tunnels:
+            public_url = tunnels[0]["public_url"]
+            print(f"Ngrok tunnel available at: {public_url}")
+        else:
+            print("Ngrok started, but no tunnels were found. Check Ngrok configuration.")
     except Exception as e:
-        print(f"ngrok startup failed: {e}")
-def stop_ngrok():
-    try:
-        subprocess.run(["taskkill", "/IM", "ngrok.exe", "/F"], capture_output=True)
-        print("ngrok tunnel closed.")
-    except Exception:
-        print("Could not stop ngrok.")
+        print(f"Failed to start Ngrok: {e}")
 
-atexit.register(stop_ngrok)
-
-threading.Thread(target=start_ngrok, daemon=True).start()
 if __name__ == '__main__':
-    ssl_context = ('certs/localhost.pem', 'certs/localhost-key.pem')
-    app.run(host='0.0.0.0', port=5000, debug=True, ssl_context=ssl_context)
+    # Start ngrok in a separate thread
+    threading.Thread(target=start_ngrok, daemon=True).start()
+
+    # Add this line to disable caching for development
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+
+    # Bind to 127.0.0.1 for reliable localhost access (IPv4 only)
+    app.run(host='127.0.0.1', port=5000, debug=True)
