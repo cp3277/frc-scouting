@@ -166,7 +166,7 @@
 
           if (data.error) {
             document.getElementById('data-container').innerText = `Error: ${data.error}`;
-            return;
+            return data;
           }
 
           const tbody = document.querySelector('#data-table tbody');
@@ -207,16 +207,21 @@
             tbody.appendChild(tr);
           });
 
+          return data; // Return data for use by fetchGraphData
+
         } catch (error) {
           document.getElementById('data-container').innerText = `Error fetching data: ${error.message}`;
+          return null;
         }
       }
 
-      async function fetchGraphData() {
+      async function fetchGraphData(data) {
         try {
-          // Use the real database-backed endpoint
-          const response = await fetch('/fetch-database-data');
-          const data = await response.json();
+          // Use passed data instead of fetching again
+          if (!data) {
+            console.warn('No data provided to fetchGraphData');
+            return;
+          }
 
           if (!Array.isArray(data) || data.length === 0) {
             console.warn('No graph data available');
@@ -327,9 +332,15 @@
         }
       }
 
-      // Fetch data on page load
-      fetchData();
-      fetchGraphData();
+      // Fetch data on page load and pass it to graph function
+      async function loadPageData() {
+        const data = await fetchData();
+        if (data) {
+          await fetchGraphData(data);
+        }
+      }
+      
+      loadPageData();
     </script>
 
     <div id="data-container" style="margin-top: 20px;"></div>

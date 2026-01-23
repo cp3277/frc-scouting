@@ -335,8 +335,9 @@ def start_ngrok():
         print(f"Failed to start Ngrok: {e}")
 
 if __name__ == '__main__':
-    # Start ngrok in a separate thread
-    threading.Thread(target=start_ngrok, daemon=True).start()
+    # Only start ngrok in the main process (not the reloader process)
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        threading.Thread(target=start_ngrok, daemon=True).start()
 
     # Add this line to disable caching for development
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
