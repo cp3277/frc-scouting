@@ -70,6 +70,15 @@
           <button class="btn-counter" style="background:#e67e22; width:60px;" onclick="changeQty('fuel', 5)">+5</button>
         </div>
       </div>
+      <div class="counter-row" style="margin-top: 8px;">
+        <div><strong>Balls Passed to Alliance</strong></div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="btn-counter" onclick="changeQty('alliance_pass', -1)">-</button>
+          <input type="number" id="alliance_pass-val" class="num-display" value="0" onchange="setQty('alliance_pass', this.value)" />
+          <button class="btn-counter" onclick="changeQty('alliance_pass', 1)">+1</button>
+          <button class="btn-counter" style="background:#e67e22; width:60px;" onclick="changeQty('alliance_pass', 3)">+3</button>
+        </div>
+      </div>
     </div>
 
     <div class="section-card">
@@ -78,7 +87,6 @@
         <div class="check-item"><input type="checkbox" id="turret"> Turreted?</div>
         <div class="check-item"><input type="checkbox" id="trench"> Under Trench?</div>
         <div class="check-item"><input type="checkbox" id="defense"> Playing Defense?</div>
-        <div class="check-item"><input type="checkbox" id="passing"> Passing Fuel?</div>
       </div>
     </div>
 
@@ -106,7 +114,8 @@
     // Initialize dataState object
     const dataState = {
       auto_fuel: 0,
-      fuel: 0
+      fuel: 0,
+      alliance_pass: 0
     };
 
     function changeQty(id, delta) {
@@ -126,11 +135,11 @@
         team: Number(document.getElementById('team').value),
         fuel_balls: dataState.fuel,
         auto_fuel: dataState.auto_fuel,
+        alliance_pass: dataState.alliance_pass,
         auto_climb: document.getElementById('auto_climb').checked ? 1 : 0,
         is_turreted: document.getElementById('turret').checked ? 1 : 0,
         fits_trench: document.getElementById('trench').checked ? 1 : 0,
         defense: document.getElementById('defense').checked ? 1 : 0,
-        passing: document.getElementById('passing').checked ? 1 : 0,
         climb: document.getElementById('climb').value,
         alliance: document.getElementById('alliance').value,
         notes: document.getElementById('notes').value || ""
@@ -152,6 +161,7 @@
       // Reset input displays
       document.getElementById('auto_fuel-val').value = 0;
       document.getElementById('fuel-val').value = 0;
+      document.getElementById('alliance_pass-val').value = 0;
 
       // Uncheck all checkboxes
       const checkboxes = document.querySelectorAll('input[type="checkbox"]');

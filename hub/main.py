@@ -102,8 +102,12 @@ def ask_groq(question: str):
 
     # Step 1: Generate SQL based on 2026 Game Rules
     prompt = f"""
-    CRITICAL: Output ONLY the SQL query. Do NOT include explanations or markdown.
-    You are a data analyst for FRC Team "Roboforce". Output a PostgreSQL query for:
+    IMPORTANT: You must output ONLY a single, valid PostgreSQL SELECT statement that answers the user's question.
+    - Wrap the SQL exactly between tags: <SQL>SELECT ...;</SQL>
+    - Do NOT include any explanations, markdown, or extra text outside the tags.
+    - If the user's request cannot be answered with a SELECT (for example any INSERT/UPDATE/DELETE/DDL or other write operation), output exactly: <SQL>NON_SELECT</SQL>
+
+    You are a data analyst for FRC Team "Roboforce". Use the following table schema when writing SQL (Postgres dialect):
 
     TABLE match_scouting (
         id SERIAL PRIMARY KEY,
@@ -112,10 +116,13 @@ def ask_groq(question: str):
         alliance TEXT,        -- 'red' or 'blue'
         fuel_balls INTEGER,   -- Teleop Fuel (1pt each)
         auto_fuel INTEGER,    -- Auto Fuel (1pt each)
+        alliance_pass INTEGER, -- Balls passed to alliance zone
         is_turreted INTEGER,  -- 1 if yes, 0 if no
         fits_trench INTEGER,  -- 1 if fits 22" trench
         climb TEXT,           -- 'no_climb', 'L1', 'L2', 'L3'
         auto_climb INTEGER,   -- 1 if L1 Auto Climb (15pts)
+        defense INTEGER,      -- 1 if played defense, 0 if no
+        passing INTEGER,      -- 1 if passed to teammates, 0 if no
         notes TEXT
     );
 
@@ -144,8 +151,35 @@ def ask_groq(question: str):
 
     sql_query = sql_query.replace('```sql', '').replace('```', '').strip()
 
+    # If the model wrapped its result in <SQL> tags, extract that content; otherwise use the full output
+    m = re.search(r"<SQL>(.*?)</SQL>", sql_query, flags=re.IGNORECASE | re.DOTALL)
+    if m:
+        sql_content = m.group(1).strip()
+        print(f"[DEBUG] Extracted SQL from <SQL> tags: {sql_content}")
+    else:
+        sql_content = sql_query
+        print(f"[DEBUG] No <SQL> tags found; using full response: {sql_content}")
+
+    # If the model explicitly indicates a non-select result, block it
+    if sql_content.strip().upper() == "NON_SELECT":
+        print("[DEBUG] Model indicated NON_SELECT; blocking non-SELECT response")
+        return {"error": "Non-SELECT query blocked.", "query": "NON_SELECT"}
+
+    # Block clearly non-SELECT statements (INSERT/UPDATE/DELETE/CREATE/DROP/ALTER/TRUNCATE)
+    if re.search(r"\b(INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|GRANT|REVOKE)\b", sql_content, flags=re.IGNORECASE):
+        print(f"[DEBUG] Forbidden SQL command detected in model output: {sql_content}")
+        return {"error": "Non-SELECT query blocked.", "query": sql_content}
+
+    # Attempt to extract the first SELECT statement
+    sel = re.search(r"(?is)\bSELECT\b.*?(;|$)", sql_content)
+    if not sel:
+        print(f"[DEBUG] No SELECT statement found in model output: {sql_content}")
+        return {"error": "Non-SELECT query blocked.", "query": sql_content}
+
+    # Use the extracted SELECT statement (trim trailing semicolon)
+    sql_query = sel.group(0).rstrip(';').strip()
+
     # Fix boolean * integer issues: Postgres won't allow boolean * 15
-    # Replace occurrences like `auto_climb * 15` with a CASE that yields 15 when true.
     if re.search(r"auto_climb\s*\*\s*15", sql_query, flags=re.IGNORECASE):
         fixed_sql = re.sub(r"auto_climb\s*\*\s*15",
                            "(CASE WHEN auto_climb THEN 15 ELSE 0 END)",
@@ -154,8 +188,9 @@ def ask_groq(question: str):
         print(f"[DEBUG] Transformed SQL to avoid boolean*int: {fixed_sql}")
         sql_query = fixed_sql
 
-    if not sql_query.upper().startswith("SELECT"):
-        print(f"[DEBUG] Non-SELECT query blocked: {sql_query}")
+    # Final safety check: ensure the extracted query starts with SELECT
+    if not sql_query.upper().lstrip().startswith("SELECT"):
+        print(f"[DEBUG] After extraction, non-SELECT detected: {sql_query}")
         return {"error": "Non-SELECT query blocked.", "query": sql_query}
 
     # Step 2: Execute SQL
@@ -193,11 +228,11 @@ def insert_data_to_db(record: dict):
     """Inserts data into the PostgreSQL database."""
     sql = """
     INSERT INTO match_scouting (
-        match, team, alliance, fuel_balls, auto_fuel, 
+        match, team, alliance, fuel_balls, auto_fuel, alliance_pass,
         is_turreted, fits_trench, climb, auto_climb, notes,
         defense, passing
     ) VALUES (
-        %(match)s, %(team)s, %(alliance)s, %(fuel_balls)s, %(auto_fuel)s,
+        %(match)s, %(team)s, %(alliance)s, %(fuel_balls)s, %(auto_fuel)s, %(alliance_pass)s,
         %(is_turreted)s, %(fits_trench)s, %(climb)s, %(auto_climb)s, %(notes)s,
         %(defense)s, %(passing)s
     )
@@ -226,9 +261,9 @@ def append_to_csv(record: dict):
     """
     try:
         fieldnames = [
-            'match', 'team', 'alliance', 'fuel_balls', 'auto_fuel',
+            'match', 'team', 'alliance', 'fuel_balls', 'auto_fuel', 'alliance_pass',
             'is_turreted', 'fits_trench', 'climb', 'auto_climb', 'notes',
-            'defense', 'passing'
+            'defense'
         ]
 
         # Normalize values and ensure keys exist
@@ -238,6 +273,7 @@ def append_to_csv(record: dict):
         normalized['alliance'] = record.get('alliance') or ''
         normalized['fuel_balls'] = int(record.get('fuel_balls') or 0)
         normalized['auto_fuel'] = int(record.get('auto_fuel') or 0)
+        normalized['alliance_pass'] = int(record.get('alliance_pass') or 0)
 
         # Booleans -> 1/0
         normalized['is_turreted'] = 1 if bool(record.get('is_turreted')) else 0
@@ -248,7 +284,6 @@ def append_to_csv(record: dict):
         normalized['notes'] = record.get('notes') or ''
 
         normalized['defense'] = 1 if bool(record.get('defense')) else 0
-        normalized['passing'] = 1 if bool(record.get('passing')) else 0
 
         df = pd.DataFrame([normalized], columns=fieldnames)
 

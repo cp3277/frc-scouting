@@ -108,6 +108,7 @@
           <th>Auto Fuel</th>
           <th>Auto Climb</th>
           <th>Fuel Balls</th>
+          <th>Passed Balls</th>
           <th>Passing</th>
           <th>Turreted</th>
           <th>Defense</th>
@@ -153,7 +154,7 @@
           });
 
           const data = await response.json();
-          responseDiv.textContent = data.summary || 'No response received.';
+          responseDiv.textContent = data.summary || 'Try a different prompt.';
         } catch (error) {
           responseDiv.textContent = 'Error: ' + error.message;
         }
@@ -180,6 +181,7 @@
             { key: 'auto_fuel' },
             { key: 'auto_climb' },
             { key: 'fuel_balls' },
+            { key: 'alliance_pass' },
             { key: 'passing' },
             { key: 'is_turreted' },
             { key: 'defense' },
@@ -234,11 +236,13 @@
             // skip rows without a valid team
             if (row.team === null || row.team === undefined) return;
             const teamKey = String(row.team);
-            if (!teamAgg[teamKey]) teamAgg[teamKey] = { fuelTotal: 0, matches: 0, autoPoints: 0, endgamePoints: 0 };
+            if (!teamAgg[teamKey]) teamAgg[teamKey] = { fuelTotal: 0, matches: 0, autoPoints: 0, endgamePoints: 0, passedTotal: 0 }; 
 
             const fuel = Number(row.fuel_balls) || 0;
             const autoFuel = Number(row.auto_fuel) || 0;
+            const passed = Number(row.alliance_pass) || 0;
             teamAgg[teamKey].fuelTotal += fuel + autoFuel;
+            teamAgg[teamKey].passedTotal += passed;
 
             // auto_climb: now stored as points directly (10 or 0)
             const autoClimb = Number(row.auto_climb) || 0;
@@ -260,7 +264,8 @@
               team: t,
               avgFuel: agg.fuelTotal / matches,
               avgAuto: agg.autoPoints / matches,
-              avgEnd: agg.endgamePoints / matches
+              avgEnd: agg.endgamePoints / matches,
+              avgPassed: agg.passedTotal / matches
             };
           });
 
@@ -268,6 +273,7 @@
 
           const teams = teamEntries.map(e => e.team);
           const avgFuel = teamEntries.map(e => +e.avgFuel.toFixed(2));
+          const avgPassed = teamEntries.map(e => +e.avgPassed.toFixed(2));
           const avgAuto = teamEntries.map(e => +e.avgAuto.toFixed(2));
           const avgEnd = teamEntries.map(e => +e.avgEnd.toFixed(2));
 
@@ -280,13 +286,22 @@
             type: 'bar',
             data: {
               labels: teams,
-              datasets: [{
-                label: 'Average Fuel (per match)',
-                data: avgFuel,
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                borderColor: 'rgba(75, 192, 192, 1)',
-                borderWidth: 1
-              }]
+              datasets: [
+                {
+                  label: 'Average Fuel (per match)',
+                  data: avgFuel,
+                  backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                  borderColor: 'rgba(75, 192, 192, 1)',
+                  borderWidth: 1
+                },
+                {
+                  label: 'Average Passed Balls (per match)',
+                  data: avgPassed,
+                  backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                  borderColor: 'rgba(54, 162, 235, 1)',
+                  borderWidth: 1
+                }
+              ]
             },
             options: { responsive: true }
           });
