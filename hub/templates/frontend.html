@@ -6,19 +6,21 @@
   <title>REBUILT 2026 — Elite Scouting</title>
   <script src="https://cdn.rawgit.com/davidshimjs/qrcodejs/gh-pages/qrcode.min.js"></script>
   <style>
-    :root{ --accent:#0b69ff; --muted:#666; --bg:#fafafa; --card:#fff; --pad:12px; }
-    body{ font-family: Inter, system-ui, Arial, sans-serif; background: var(--bg); margin: 14px; display:flex; justify-content:center; }
-    .wrap{ width:100%; max-width:980px; background:var(--card); padding:18px; border-radius:12px; box-shadow:0 6px 20px rgba(10,10,10,0.06); }
-    .section-card { padding:var(--pad); border-radius:10px; background:#fff; border:1px solid #f0f0f5; margin-bottom: 15px; }
+    :root{ --accent:#0b69ff; --muted:#aaa; --bg:#1a1a1a; --card:#2d2d2d; --pad:12px; --text:#e0e0e0; --border:#444; }
+    body{ font-family: Inter, system-ui, Arial, sans-serif; background: var(--bg); margin: 14px; display:flex; justify-content:center; color: var(--text); }
+    .wrap{ width:100%; max-width:980px; background:var(--card); padding:18px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,0.4); }
+    .section-card { padding:var(--pad); border-radius:10px; background:#252525; border:1px solid var(--border); margin-bottom: 15px; }
     label{ display:block; font-weight:600; margin-top:8px; color:var(--muted); font-size:13px; }
-    input[type="number"], select, textarea { width:100%; padding:10px; margin-top:6px; border-radius:8px; border:1px solid #e6e6ee; font-size:14px; }
-    .counter-row{ display:flex; align-items:center; justify-content:space-between; padding:10px; background:#fbfbff; border-radius:8px; margin-bottom: 8px; }
+    input[type="number"], select, textarea { width:100%; padding:10px; margin-top:6px; border-radius:8px; border:1px solid var(--border); font-size:14px; background:#1e1e1e; color:var(--text); }
+    .counter-row{ display:flex; align-items:center; justify-content:space-between; padding:10px; background:#1e1e1e; border-radius:8px; margin-bottom: 8px; }
     .btn-counter { width:40px; height:40px; border-radius:8px; border:none; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; }
-    .num-display { min-width:50px; text-align:center; font-weight:700; font-size:1.2em; }
+    .num-display { min-width:50px; text-align:center; font-weight:700; font-size:1.2em; background:#1e1e1e; color:var(--text); border:1px solid var(--border); }
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-    .check-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .check-item { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); }
     .primary-btn { width:100%; background:var(--accent); color:#fff; border:none; padding:15px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1.1em; }
     #qrcode { margin-top:20px; display: flex; justify-content: center; }
+    h1, h3 { color: var(--text); }
+    a { color: #4a9eff; }
   </style>
 </head>
 <body>
