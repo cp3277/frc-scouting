@@ -152,12 +152,9 @@ gitignore:
   - __pycache__/
   - data/
   - reef.png
-  - reef_base64.txt
 
 development_notes:
   - Primary environment: VS Code on Windows
   - GitHub Copilot assists with:
       - HTML/JS interactivity
-      - Flask endpoints for data handling
-      - Data formatting and QR parsing logic
   - Focus on maintainability and offline compatibility

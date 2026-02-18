@@ -1,5 +1,6 @@
 reef.png
 reef_base64.txt
+mkcert-v1.4.4-linux-amd64
 # Certificate files and directories
 certs/
 *.pem

@@ -129,7 +129,7 @@ def ask_groq(question: str):
     SCORING RULES:
     1. Fuel: 1pt per ball.
     2. Teleop Climb: 'L3'=30, 'L2'=20, 'L1'=10.
-    3. Auto Climb: auto_climb=1 is 15pts.
+    3. Auto Climb: auto_climb value is the points (already 10 or 0).
     4. Consistency: Smallest (MAX - MIN) range per team.
     5. Averages: ROUND(AVG(...), 2).
 
